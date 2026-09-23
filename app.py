@@ -50,10 +50,15 @@ _HARD = {
 # slang for "boss/bro") are deliberately NOT here — the model + context rules
 # decide those. This tiny hard list just makes true obscenities decisive.
 _VULGAR = {
-    "pako", "paka", "pakaya", "puka", "keri", "hutta", "hutto",
-    "huththa", "huttek", "wesi", "ponnaya", "kariya", "kimba",
-    "hukanna", "hukana", "hukanawa", "hukoo",
+    "pako", "paka", "pakaya", "pake", "puka", "pukmantha", "keri", "hutta", "hutto",
+    "huththa", "huttek", "wesi", "wesawa", "ponnaya", "kariya", "kimba", "labba",
+    "kukku", "hukanna", "hukana", "hukanawa", "huka", "hukapan", "tauka", "taukanawa",
+    "sakkili", "sakkiliya", "konakapala", "junda", "ambakissa",
+    "wallapatta", "valaththaya", "lowanawa",
+    # script (Sinhala Unicode bad-word list)
     "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා", "හුකනවා",
+    "ලබ්බ", "පුක්මන්තා", "සක්කිලි", "හුකන්න",
+    # english
     "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt",
 }
 # FRIENDLY address / positive slang — casual banter markers. When one of these is
