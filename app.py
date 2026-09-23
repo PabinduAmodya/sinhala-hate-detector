@@ -133,18 +133,36 @@ def _name(tokens_list, rawset):
 # Threats often carry NO slur, so the model can miss them ("man umbawa maranawa"
 # = "I will kill you"). We match verb + target by STEM so inflections (umbawa,
 # උඹව, maranawa, මරන්න) are all caught.
-_THREAT_STEMS = {"maran", "marila", "maramu", "kapan", "kapal", "gahan",
-                 "wanasa", "vinasa"}
-_THREAT_SCRIPT = ("මර", "කප", "නස", "විනාශ", "වනස")
-_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta", "muna"}
+# violence verbs (maranawa=kill, kapanawa=cut, gahanawa=hit) AND "go die" verbs
+# (maren/marenna, nariyenna=perish, diyawela=drown) — matched by stem.
+_THREAT_STEMS = {"maran", "marila", "maramu", "mare", "nariye", "nariya",
+                 "kapan", "kapal", "gahan", "wanasa", "vinasa", "diyawe"}
+_THREAT_SCRIPT = ("මර", "මැරෙ", "කප", "නස", "නරිය", "විනාශ", "වනස")
+_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta",
+                 "muna", "yako", "yako"}
 _TARGET_SCRIPT = ("උඹ", "ඔය", "තෝ", "තො", "තම", "උන්")
 
 
+def _has_target(tokens_list):
+    """Is a second-/third-person target addressed? (umba, umbawa, oya, උඹව …)"""
+    ts = tuple(_TARGET_STEMS)
+    return any(w.startswith(ts) or w.startswith(_TARGET_SCRIPT) for w in tokens_list)
+
+
 def _threat(tokens_list):
-    vstems, tstems = tuple(_THREAT_STEMS), tuple(_TARGET_STEMS)
-    has_v = any(w.startswith(vstems) or w.startswith(_THREAT_SCRIPT) for w in tokens_list)
-    has_t = any(w.startswith(tstems) or w.startswith(_TARGET_SCRIPT) for w in tokens_list)
-    return has_v and has_t
+    vs = tuple(_THREAT_STEMS)
+    has_v = any(w.startswith(vs) or w.startswith(_THREAT_SCRIPT) for w in tokens_list)
+    return has_v and _has_target(tokens_list)
+
+
+def _force(res, floor):
+    res = dict(res)
+    res["label"] = "Offensive"
+    res["offensive_score"] = max(res["offensive_score"], floor)
+    res["confidence"] = res["offensive_score"]
+    res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
+                            "Offensive": res["offensive_score"]}
+    return res, True
 
 
 def _rescue(res):
@@ -166,34 +184,30 @@ def apply_safety_net(text, res):
     Returns (res, fixed)."""
     toks_list = _tokens(text)
     toks = {_norm(w) for w in toks_list}         # spelling-normalized tokens
-    # (0) threat of violence against a person -> Offensive (model often misses these)
-    if _threat(toks_list):
-        res = dict(res)
-        res["label"] = "Offensive"
-        res["offensive_score"] = max(res["offensive_score"], 0.93)
-        res["confidence"] = res["offensive_score"]
-        res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
-                                "Offensive": res["offensive_score"]}
-        return res, True
-    # (1) unambiguous obscenity -> decisively Offensive (hard blocklist)
-    if _hits(toks, _VULGAR):
-        res = dict(res)
-        res["label"] = "Offensive"
-        res["offensive_score"] = max(res["offensive_score"], 0.92)
-        res["confidence"] = res["offensive_score"]
-        res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
-                                "Offensive": res["offensive_score"]}
-        return res, True
+    tgt = _has_target(toks_list)                 # is a person being addressed?
+
+    # ── UPGRADES: backstop the model on clearly-offensive content it may miss ──
+    if _threat(toks_list):                        # violence / "go die" at a person
+        return _force(res, 0.93)
+    if _hits(toks, _VULGAR):                       # unambiguous obscenity
+        return _force(res, 0.92)
+    if tgt and _hits(toks, _HARD):                 # name-call / dehumanize a person
+        return _force(res, 0.90)
+    if _hits(toks, _GROUP_TERMS) and (_hits(toks, _HOSTILE_VERB) or "para" in toks
+                                      or _hits(toks, {"ida", "epa", "nathi", "aylawa"})):
+        return _force(res, 0.90)                   # ethnic/religious slur or expulsion call
+
+    # ── RESCUES: fix the model's false positives (only when it said Offensive) ──
     if res["label"] != "Offensive":
         return res, False
     if _hits(toks, _HARD) or _hits(toks, _GROUP):
-        return res, False                       # real insult / coded hate — leave it
+        return res, False                          # real insult / coded hate — leave it
     if _hits(toks, _SOFT):
-        if _hits(toks, _TARGET):
-            return res, False                   # "umba moda" — aimed at a person, keep Offensive
-        return _rescue(res)                      # "moda wada karanna epa" — describing a thing
+        if _hits(toks, _TARGET) or tgt:
+            return res, False                      # "umba moda" — aimed at a person, keep it
+        return _rescue(res)                        # "moda wada karanna epa" — describes a thing
     if _hits(toks, _CASUAL) or _hits(toks, _FRIENDLY):
-        return _rescue(res)                      # casual/friendly banter, nothing abusive
+        return _rescue(res)                        # casual/friendly banter, nothing abusive
     return res, False
 
 
@@ -231,6 +245,10 @@ def context_reason(text, res):
             who = f"a group (“{g}”)" if g else "a group of people"
             return (f"It calls for {who} to be driven out or harmed — "
                     "coded hate even though no explicit slur is used.")
+        gw = _name(toks_list, _GROUP_TERMS)
+        if gw:
+            return (f"It uses a slur/hostility against an ethnic or religious group (“{gw}”) — "
+                    "this is hate speech.")
         w = _name(toks_list, _HARD)
         if w:
             return f"“{w}” is used to name-call a person — a direct personal insult."
