@@ -1,8 +1,7 @@
---index-url https://download.pytorch.org/whl/cpu
---extra-index-url https://pypi.org/simple
-torch==2.4.1
-streamlit==1.38.0
-transformers==4.44.2
-accelerate==0.34.2
-pandas==2.2.2
-numpy==1.26.4
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
+streamlit
+transformers
+accelerate
+pandas
+numpy
