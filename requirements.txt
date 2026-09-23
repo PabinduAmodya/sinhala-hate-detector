@@ -3,5 +3,7 @@ torch==2.14.0+cpu
 streamlit
 transformers
 accelerate
+sentencepiece
+protobuf
 pandas
 numpy

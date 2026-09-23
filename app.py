@@ -135,10 +135,11 @@ st.markdown(f"""
 @st.cache_resource(show_spinner="Loading model from the Hub…")
 def load_model():
     tok = AutoTokenizer.from_pretrained(MODEL_ID)
-    # low_cpu_mem_usage avoids the transient 2x-memory spike at load time, which
-    # keeps us under the free-tier RAM limit on Streamlit Community Cloud.
+    # The weights are stored in fp16 to keep the download small; we load them as
+    # fp32 because CPU inference needs full precision. low_cpu_mem_usage avoids the
+    # transient 2x-memory spike at load time (keeps us under the free-tier RAM cap).
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_ID, low_cpu_mem_usage=True).eval()
+        MODEL_ID, low_cpu_mem_usage=True, torch_dtype=torch.float32).eval()
     torch.set_num_threads(2)
     return tok, model
 
