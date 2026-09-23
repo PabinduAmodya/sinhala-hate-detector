@@ -45,6 +45,16 @@ _HARD = {
     "idiot", "bitch", "bastard", "fuck", "shit", "asshole", "moron", "retard",
     "slut", "whore",
 }
+# VULGAR — unambiguous obscenities/slurs that are offensive in ANY context.
+# A hard blocklist (standard in real moderation, alongside the ML model) so clear
+# vulgar words flag decisively instead of at a wishy-washy confidence.
+_VULGAR = {
+    "bosa", "bosaa", "boosa", "pako", "pakaya", "puka", "keri", "hutta", "hutto",
+    "huththa", "huttek", "wesi", "wesa", "wesii", "ponna", "ponnaya", "kariya",
+    "hukanna", "hukoo", "kaudda", "kimba", "pette",
+    "බොස", "බෝසා", "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා",
+    "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt",
+}
 # SOFT words — "stupid / foolish / donkey" as an ADJECTIVE. Offensive ONLY when
 # aimed at a person (a target pronoun is present); harmless when describing an
 # action or thing ("moda wada karanna epa" = "don't do foolish things").
@@ -85,9 +95,18 @@ def apply_safety_net(text, res):
     abuse. It rescues (a) a mild 'stupid/foolish' word used to describe an action
     or thing, and (b) casual second-person chat with no abusive word at all.
     Returns (res, fixed)."""
+    toks = set(_tokens(text))
+    # (1) unambiguous obscenity -> decisively Offensive (hard blocklist)
+    if toks & _VULGAR:
+        res = dict(res)
+        res["label"] = "Offensive"
+        res["offensive_score"] = max(res["offensive_score"], 0.92)
+        res["confidence"] = res["offensive_score"]
+        res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
+                                "Offensive": res["offensive_score"]}
+        return res, True
     if res["label"] != "Offensive":
         return res, False
-    toks = set(_tokens(text))
     if toks & _HARD or toks & _GROUP:
         return res, False                       # real insult / coded hate — leave it
     if toks & _SOFT:
