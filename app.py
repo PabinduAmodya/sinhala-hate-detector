@@ -34,7 +34,7 @@ _HARD = {
     # noun-form name-calls (calling a PERSON one of these = insult)
     "modaya", "modayo", "modayek", "modayaa", "gonaa", "gonek", "gonaaa",
     "buruwa", "booruwa", "buruwek", "balla", "ballo", "ballek", "pissa", "pissek",
-    "pissi", "pissu", "yako", "yako",
+    "pissi", "pissu", "yako", "harakaa", "gawaya",
     # vulgar / obscene
     "pako", "pakaya", "puka", "keri", "hutta", "hutto", "huththa", "huttek",
     "wesi", "wesa", "wesii", "ponna", "ponnaya", "kariya", "hukanna",
@@ -50,10 +50,10 @@ _HARD = {
 # slang for "boss/bro") are deliberately NOT here — the model + context rules
 # decide those. This tiny hard list just makes true obscenities decisive.
 _VULGAR = {
-    "pako", "pakaya", "puka", "keri", "hutta", "hutto",
-    "huththa", "huttek", "wesi", "wesa", "wesii", "ponnaya", "kariya",
-    "hukanna", "hukoo",
-    "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා",
+    "pako", "paka", "pakaya", "puka", "keri", "hutta", "hutto",
+    "huththa", "huttek", "wesi", "ponnaya", "kariya", "kimba",
+    "hukanna", "hukana", "hukanawa", "hukoo",
+    "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා", "හුකනවා",
     "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt",
 }
 # FRIENDLY address / positive slang — casual banter markers. When one of these is
@@ -62,7 +62,8 @@ _VULGAR = {
 _FRIENDLY = {"machan", "machang", "macho", "bosa", "boss", "bro", "brother",
              "yaluwa", "yaaluwa", "aiya", "malli", "nangi", "patiya", "patiyo",
              "chooti", "putha", "ela", "supiri", "niyamai", "superb", "adarei",
-             "මචන්", "බොස", "අයිය", "මල්ලි", "පැටියා"}
+             "raja", "chief", "kolla", "sudu", "yamu", "hari", "elakiri",
+             "මචන්", "බොස", "අයිය", "මල්ලි", "පැටියා", "එළකිරි"}
 # SOFT words — "stupid / foolish / donkey" as an ADJECTIVE. Offensive ONLY when
 # aimed at a person (a target pronoun is present); harmless when describing an
 # action or thing ("moda wada karanna epa" = "don't do foolish things").
@@ -71,7 +72,7 @@ _SOFT = {"moda", "gon", "gona", "buru", "modai", "gonai",
 # person-target pronouns — a SOFT word + one of these = an insult aimed at someone
 _TARGET = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "oya",
            "oyaa", "oyaata", "oyala", "oyaala", "eyaa", "eyaata", "un", "unta",
-           "meya", "muney", "උඹ", "උබ", "තෝ", "ඔය", "එයා"}
+           "meya", "muney", "thamuse", "thamuse", "උඹ", "උබ", "තෝ", "ඔය", "එයා"}
 # group / targeted-hate cues — presence BLOCKS any rescue (protects coded hate)
 _GROUP = {"demala", "thambi", "para", "muslim", "yanna", "elawanna", "nathi",
           "wanaganna", "haralla", "දෙමළ", "තම්බි", "පර"}
@@ -84,6 +85,42 @@ _CASUAL = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "machan",
 
 def _tokens(text):
     return _re.findall(r"[\w඀-෿]+", str(text).lower())
+
+
+def _norm(w):
+    """Normalise romanized-Sinhala spelling so variants collapse to one form.
+    Romanized Sinhala has no fixed spelling (hutta/huththa/huttoo, modaya/moodayaa),
+    which the literature names as the hardest part of the task. We fold aspirated
+    digraphs to plain, unify w/v, and squeeze repeated letters, so a single lexicon
+    entry matches all its spellings."""
+    w = w.lower()
+    for a, b in (("th", "t"), ("dh", "d"), ("bh", "b"), ("gh", "g"),
+                 ("kh", "k"), ("ph", "p"), ("sh", "s")):
+        w = w.replace(a, b)
+    w = w.replace("v", "w")
+    out = []
+    for ch in w:                       # collapse runs of the same char (aa->a, tt->t)
+        if not out or out[-1] != ch:
+            out.append(ch)
+    return "".join(out)
+
+
+def _norms(rawset):
+    return {_norm(w) for w in rawset}
+
+
+def _hits(text_norm_toks, rawset):
+    """True-ish set: normalized input tokens that match the normalized lexicon."""
+    return text_norm_toks & _norms(rawset)
+
+
+def _name(tokens_list, rawset):
+    """Return the ORIGINAL word whose normalized form is in the lexicon (for reasons)."""
+    rn = _norms(rawset)
+    for w in tokens_list:
+        if _norm(w) in rn:
+            return w
+    return None
 
 
 def _rescue(res):
@@ -103,9 +140,9 @@ def apply_safety_net(text, res):
     abuse. It rescues (a) a mild 'stupid/foolish' word used to describe an action
     or thing, and (b) casual second-person chat with no abusive word at all.
     Returns (res, fixed)."""
-    toks = set(_tokens(text))
+    toks = {_norm(w) for w in _tokens(text)}    # spelling-normalized tokens
     # (1) unambiguous obscenity -> decisively Offensive (hard blocklist)
-    if toks & _VULGAR:
+    if _hits(toks, _VULGAR):
         res = dict(res)
         res["label"] = "Offensive"
         res["offensive_score"] = max(res["offensive_score"], 0.92)
@@ -115,13 +152,13 @@ def apply_safety_net(text, res):
         return res, True
     if res["label"] != "Offensive":
         return res, False
-    if toks & _HARD or toks & _GROUP:
+    if _hits(toks, _HARD) or _hits(toks, _GROUP):
         return res, False                       # real insult / coded hate — leave it
-    if toks & _SOFT:
-        if toks & _TARGET:
+    if _hits(toks, _SOFT):
+        if _hits(toks, _TARGET):
             return res, False                   # "umba moda" — aimed at a person, keep Offensive
         return _rescue(res)                      # "moda wada karanna epa" — describing a thing
-    if toks & _CASUAL or toks & _FRIENDLY:
+    if _hits(toks, _CASUAL) or _hits(toks, _FRIENDLY):
         return _rescue(res)                      # casual/friendly banter, nothing abusive
     return res, False
 
@@ -136,18 +173,11 @@ _HOSTILE_VERB = {"yanna", "elawanna", "nathi", "wanaganna", "haralla", "palayan"
 _GROUP_TERMS = {"demala", "thambi", "muslim", "දෙමළ", "තම්බි"}   # for naming only
 
 
-def _first(toks_list, s):
-    for w in toks_list:
-        if w in s:
-            return w
-    return None
-
-
 def context_reason(text, res):
     """Return a short, human-readable reason grounded in the CONTEXT signals —
-    not just which word lit up. This is what makes the decision explainable."""
+    not just which word lit up. Uses the same spelling-normalized matching."""
     toks_list = _tokens(text)
-    toks = set(toks_list)
+    tn = {_norm(w) for w in toks_list}          # normalized token set
     off = res["label"] == "Offensive"
     unc = 0.42 <= res["offensive_score"] <= 0.62
 
@@ -156,37 +186,35 @@ def context_reason(text, res):
                 "cues, so the system abstains and recommends human review.")
 
     if off:
-        w = _first(toks_list, _VULGAR)
+        w = _name(toks_list, _VULGAR)
         if w:
             return f"Contains an explicit obscene word (“{w}”), which is abusive in any context."
-        if toks & _HOSTILE_VERB and (toks & _GROUP or toks & _TARGET):
-            g = _first(toks_list, _GROUP_TERMS)
+        if _hits(tn, _HOSTILE_VERB) and (_hits(tn, _GROUP) or _hits(tn, _TARGET)):
+            g = _name(toks_list, _GROUP_TERMS)
             who = f"a group (“{g}”)" if g else "a group of people"
             return (f"It calls for {who} to be driven out or harmed — "
                     "coded hate even though no explicit slur is used.")
-        w = _first(toks_list, _HARD)
+        w = _name(toks_list, _HARD)
         if w:
             return f"“{w}” is used to name-call a person — a direct personal insult."
-        w = _first(toks_list, _SOFT)
-        if w and (toks & _TARGET):
-            t = _first(toks_list, _TARGET)
+        w = _name(toks_list, _SOFT)
+        if w and _hits(tn, _TARGET):
+            t = _name(toks_list, _TARGET)
             return f"An insult word (“{w}”) is aimed straight at a person (“{t}”)."
         return "The overall wording reads as hostile/abusive from its context."
 
     # not offensive
-    if (toks & _ENDEAR_MARK) and (toks & (_SOFT | _HARD | _CHILD)):
-        p = _first(toks_list, _SOFT | _HARD) or _first(toks_list, _CHILD)
-        return (f"“{p}” sits inside an affectionate frame (e.g. “mage … {_first(toks_list,_CHILD) or 'patiya'}”), "
-                "so it reads as endearment, not an insult.")
-    w = _first(toks_list, _SOFT)
-    if w and not (toks & _TARGET):
+    if _hits(tn, _ENDEAR_MARK) and (_hits(tn, _SOFT) or _hits(tn, _HARD) or _hits(tn, _CHILD)):
+        p = _name(toks_list, _SOFT | _HARD) or _name(toks_list, _CHILD)
+        return (f"“{p}” sits inside an affectionate frame (e.g. “mage … "
+                f"{_name(toks_list, _CHILD) or 'patiya'}”), so it reads as endearment, not an insult.")
+    w = _name(toks_list, _SOFT)
+    if w and not _hits(tn, _TARGET):
         return f"“{w}” here describes an action or thing, not a person — so it isn’t a personal insult."
-    if toks & _FRIENDLY:
-        f = _first(toks_list, _FRIENDLY)
-        return f"Casual friendly address (“{f}”) with no abusive word — reads as friendly banter."
-    if toks & _CASUAL:
-        c = _first(toks_list, _CASUAL)
-        return f"An informal pronoun (“{c}”) in ordinary conversation — not offensive on its own."
+    if _hits(tn, _FRIENDLY):
+        return f"Casual friendly address (“{_name(toks_list, _FRIENDLY)}”) with no abusive word — reads as friendly banter."
+    if _hits(tn, _CASUAL):
+        return f"An informal pronoun (“{_name(toks_list, _CASUAL)}”) in ordinary conversation — not offensive on its own."
     return "No slur or hostile framing is present; the model reads it as ordinary language."
 
 st.set_page_config(page_title="Sinhala–English Hate Speech Detector",
@@ -413,11 +441,22 @@ with tab_b:
 with tab_c:
     st.markdown("""
 ### About
-An explainable system that flags **offensive language** in Sinhala, English and code-mixed
-(Singlish) text. It fine-tunes **XLM-RoBERTa** with Focal Loss and explains each decision at the
-word level. It reads **context** — telling affectionate uses of pejorative words (e.g. *mage buru
-patiya*, "my darling") from hostile ones — and returns an **"Uncertain"** verdict on borderline
-cases instead of guessing.
+An explainable **hybrid** system that flags **offensive language** in Sinhala, English and
+code-mixed (Singlish) text. A fine-tuned **XLM-RoBERTa** model (trained on the SOLD dataset with
+Focal Loss + contrastive/transliteration augmentation) reads the language, and a transparent
+**context layer** explains and safeguards each decision.
+
+**How it reads context — not keywords:**
+- Tells an affectionate pejorative (*mage buru patiya*, "my darling") from a hostile one (*umba buruwa*).
+- Knows a mild word describing a *thing* (*moda wada* — "foolish work") isn't a personal insult.
+- Treats informal address (*umba*, *machan*, *bosa*) as friendly banter unless it targets a person.
+- Flags **coded hate** that has no slur (e.g. calls to expel a group), and abstains with an
+  **"Uncertain"** verdict on genuinely borderline text.
+- Normalises **romanized-Sinhala spelling** (*hutta / huththa / huttoo* → one form), the challenge
+  the literature identifies as hardest for this task.
+
+This model + explainable-lexicon design follows validated work on lexicon-enhanced transformers for
+low-resource hate-speech detection.
 
 *Final Year Research Project — BSc (Hons) Computer Science, NSBM Green University.*
 """)
