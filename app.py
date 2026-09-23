@@ -45,16 +45,24 @@ _HARD = {
     "idiot", "bitch", "bastard", "fuck", "shit", "asshole", "moron", "retard",
     "slut", "whore",
 }
-# VULGAR — unambiguous obscenities/slurs that are offensive in ANY context.
-# A hard blocklist (standard in real moderation, alongside the ML model) so clear
-# vulgar words flag decisively instead of at a wishy-washy confidence.
+# VULGAR — ONLY genuinely unambiguous obscenities that have no friendly meaning
+# in any register. Context-dependent words (e.g. "bosa", which is also friendly
+# slang for "boss/bro") are deliberately NOT here — the model + context rules
+# decide those. This tiny hard list just makes true obscenities decisive.
 _VULGAR = {
-    "bosa", "bosaa", "boosa", "pako", "pakaya", "puka", "keri", "hutta", "hutto",
-    "huththa", "huttek", "wesi", "wesa", "wesii", "ponna", "ponnaya", "kariya",
-    "hukanna", "hukoo", "kaudda", "kimba", "pette",
-    "බොස", "බෝසා", "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා",
+    "pako", "pakaya", "puka", "keri", "hutta", "hutto",
+    "huththa", "huttek", "wesi", "wesa", "wesii", "ponnaya", "kariya",
+    "hukanna", "hukoo",
+    "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා",
     "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt",
 }
+# FRIENDLY address / positive slang — casual banter markers. When one of these is
+# present and there is NO obscenity, slur, or personal insult, the text reads as
+# friendly ("bosa machan", "ela macho", "supiri bro").
+_FRIENDLY = {"machan", "machang", "macho", "bosa", "boss", "bro", "brother",
+             "yaluwa", "yaaluwa", "aiya", "malli", "nangi", "patiya", "patiyo",
+             "chooti", "putha", "ela", "supiri", "niyamai", "superb", "adarei",
+             "මචන්", "බොස", "අයිය", "මල්ලි", "පැටියා"}
 # SOFT words — "stupid / foolish / donkey" as an ADJECTIVE. Offensive ONLY when
 # aimed at a person (a target pronoun is present); harmless when describing an
 # action or thing ("moda wada karanna epa" = "don't do foolish things").
@@ -113,9 +121,73 @@ def apply_safety_net(text, res):
         if toks & _TARGET:
             return res, False                   # "umba moda" — aimed at a person, keep Offensive
         return _rescue(res)                      # "moda wada karanna epa" — describing a thing
-    if toks & _CASUAL:
-        return _rescue(res)                      # casual chat, nothing abusive
+    if toks & _CASUAL or toks & _FRIENDLY:
+        return _rescue(res)                      # casual/friendly banter, nothing abusive
     return res, False
+
+
+# ── Context reasoning (plain-language "why", beyond word highlighting) ─────────
+_ENDEAR_MARK = {"mage", "ape", "adare", "adarei", "chooti", "rattaran", "punchi",
+                "sudu", "මගේ", "ආදරේ", "පුංචි"}
+_CHILD = {"patiya", "patiyo", "kolla", "kella", "duwa", "putha", "baba", "malli",
+          "nangi", "පැටියා", "කොල්ලා", "දුව"}
+_HOSTILE_VERB = {"yanna", "elawanna", "nathi", "wanaganna", "haralla", "palayan",
+                 "maranna", "එලවන්න", "යන්න"}
+_GROUP_TERMS = {"demala", "thambi", "muslim", "දෙමළ", "තම්බි"}   # for naming only
+
+
+def _first(toks_list, s):
+    for w in toks_list:
+        if w in s:
+            return w
+    return None
+
+
+def context_reason(text, res):
+    """Return a short, human-readable reason grounded in the CONTEXT signals —
+    not just which word lit up. This is what makes the decision explainable."""
+    toks_list = _tokens(text)
+    toks = set(toks_list)
+    off = res["label"] == "Offensive"
+    unc = 0.42 <= res["offensive_score"] <= 0.62
+
+    if unc:
+        return ("The wording is borderline — it carries both neutral and hostile "
+                "cues, so the system abstains and recommends human review.")
+
+    if off:
+        w = _first(toks_list, _VULGAR)
+        if w:
+            return f"Contains an explicit obscene word (“{w}”), which is abusive in any context."
+        if toks & _HOSTILE_VERB and (toks & _GROUP or toks & _TARGET):
+            g = _first(toks_list, _GROUP_TERMS)
+            who = f"a group (“{g}”)" if g else "a group of people"
+            return (f"It calls for {who} to be driven out or harmed — "
+                    "coded hate even though no explicit slur is used.")
+        w = _first(toks_list, _HARD)
+        if w:
+            return f"“{w}” is used to name-call a person — a direct personal insult."
+        w = _first(toks_list, _SOFT)
+        if w and (toks & _TARGET):
+            t = _first(toks_list, _TARGET)
+            return f"An insult word (“{w}”) is aimed straight at a person (“{t}”)."
+        return "The overall wording reads as hostile/abusive from its context."
+
+    # not offensive
+    if (toks & _ENDEAR_MARK) and (toks & (_SOFT | _HARD | _CHILD)):
+        p = _first(toks_list, _SOFT | _HARD) or _first(toks_list, _CHILD)
+        return (f"“{p}” sits inside an affectionate frame (e.g. “mage … {_first(toks_list,_CHILD) or 'patiya'}”), "
+                "so it reads as endearment, not an insult.")
+    w = _first(toks_list, _SOFT)
+    if w and not (toks & _TARGET):
+        return f"“{w}” here describes an action or thing, not a person — so it isn’t a personal insult."
+    if toks & _FRIENDLY:
+        f = _first(toks_list, _FRIENDLY)
+        return f"Casual friendly address (“{f}”) with no abusive word — reads as friendly banter."
+    if toks & _CASUAL:
+        c = _first(toks_list, _CASUAL)
+        return f"An informal pronoun (“{c}”) in ordinary conversation — not offensive on its own."
+    return "No slur or hostile framing is present; the model reads it as ordinary language."
 
 st.set_page_config(page_title="Sinhala–English Hate Speech Detector",
                    page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
@@ -261,7 +333,7 @@ EXAMPLES = {
     "❤️ Endearment (Singlish)": "mage buru patiya, adarei oyaata",
     "⚠️ Insult (Singlish)": "umba modaya, para balla",
     "⚠️ Coded hate": "oya aya ape ratin yanna ona",
-    "🔀 Friendly code-mixed": "ela machan, super video, keep it up",
+    "🤝 Friendly slang": "bosa machan uba kohomada, ela video bro",
 }
 
 with tab_a:
@@ -300,13 +372,19 @@ with tab_a:
                 with col:
                     st.caption(nm); st.progress(res["probabilities"][nm])
                     st.write(f"**{res['probabilities'][nm]:.1%}**")
-            st.markdown("#### 🔍 Why? — word-level explanation")
-            st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
-                        "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span></div>",
-                        unsafe_allow_html=True)
-            with st.spinner("Computing word contributions…"):
-                pairs = word_importance(text)
-            st.markdown(render_highlight(pairs), unsafe_allow_html=True)
+            st.markdown("#### 🧠 Why? — context reasoning")
+            st.markdown(
+                f"<div style='background:#eef4fb;border:1px solid #cfe0f3;border-left:5px solid {BLUE};"
+                f"border-radius:10px;padding:14px 16px;font-size:15.5px;color:#20334a'>"
+                f"{html.escape(context_reason(text, res))}</div>",
+                unsafe_allow_html=True)
+            with st.expander("Show word-level signals (how each word moves the model's raw score)"):
+                st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
+                            "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span></div>",
+                            unsafe_allow_html=True)
+                with st.spinner("Computing word contributions…"):
+                    pairs = word_importance(text)
+                st.markdown(render_highlight(pairs), unsafe_allow_html=True)
 
 with tab_b:
     st.markdown("Paste comments (one per line) or upload a CSV with a **text** column.")
