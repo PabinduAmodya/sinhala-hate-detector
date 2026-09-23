@@ -67,7 +67,7 @@ _VULGAR = {
 _FRIENDLY = {"machan", "machang", "macho", "bosa", "boss", "bro", "brother",
              "yaluwa", "yaaluwa", "aiya", "malli", "nangi", "patiya", "patiyo",
              "chooti", "putha", "ela", "supiri", "niyamai", "superb", "adarei",
-             "raja", "chief", "kolla", "sudu", "yamu", "hari", "elakiri",
+             "raja", "elakiri",
              "මචන්", "බොස", "අයිය", "මල්ලි", "පැටියා", "එළකිරි"}
 # SOFT words — "stupid / foolish / donkey" as an ADJECTIVE. Offensive ONLY when
 # aimed at a person (a target pronoun is present); harmless when describing an
@@ -82,9 +82,10 @@ _TARGET = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "oya",
 _GROUP = {"demala", "thambi", "para", "muslim", "yanna", "elawanna", "nathi",
           "wanaganna", "haralla", "දෙමළ", "තම්බි", "පර"}
 # informal / friendly words that TRIGGER the rescue check when nothing is abusive
+# Only genuine casual-ADDRESS / low-register pronouns — NOT generic common words
+# (mama/eka/oya/wada were too broad and wrongly rescued real offensive posts).
 _CASUAL = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "machan",
-           "macho", "malli", "aiya", "nangi", "putha", "yaluwa", "yaaluwa", "bro",
-           "ban", "bn", "oya", "api", "mama", "eka", "wada", "weda", "wede",
+           "macho", "malli", "aiya", "yaluwa", "yaaluwa", "bro", "ban", "bn",
            "උඹ", "උබ", "උඹල", "තෝ", "මචන්", "මල්ලි", "අයිය"}
 
 
@@ -128,6 +129,24 @@ def _name(tokens_list, rawset):
     return None
 
 
+# ── Threat detection (violence verb aimed at a person) ────────────────────────
+# Threats often carry NO slur, so the model can miss them ("man umbawa maranawa"
+# = "I will kill you"). We match verb + target by STEM so inflections (umbawa,
+# උඹව, maranawa, මරන්න) are all caught.
+_THREAT_STEMS = {"maran", "marila", "maramu", "kapan", "kapal", "gahan",
+                 "wanasa", "vinasa"}
+_THREAT_SCRIPT = ("මර", "කප", "නස", "විනාශ", "වනස")
+_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta", "muna"}
+_TARGET_SCRIPT = ("උඹ", "ඔය", "තෝ", "තො", "තම", "උන්")
+
+
+def _threat(tokens_list):
+    vstems, tstems = tuple(_THREAT_STEMS), tuple(_TARGET_STEMS)
+    has_v = any(w.startswith(vstems) or w.startswith(_THREAT_SCRIPT) for w in tokens_list)
+    has_t = any(w.startswith(tstems) or w.startswith(_TARGET_SCRIPT) for w in tokens_list)
+    return has_v and has_t
+
+
 def _rescue(res):
     res = dict(res)
     res["label"] = "Not offensive"
@@ -145,7 +164,17 @@ def apply_safety_net(text, res):
     abuse. It rescues (a) a mild 'stupid/foolish' word used to describe an action
     or thing, and (b) casual second-person chat with no abusive word at all.
     Returns (res, fixed)."""
-    toks = {_norm(w) for w in _tokens(text)}    # spelling-normalized tokens
+    toks_list = _tokens(text)
+    toks = {_norm(w) for w in toks_list}         # spelling-normalized tokens
+    # (0) threat of violence against a person -> Offensive (model often misses these)
+    if _threat(toks_list):
+        res = dict(res)
+        res["label"] = "Offensive"
+        res["offensive_score"] = max(res["offensive_score"], 0.93)
+        res["confidence"] = res["offensive_score"]
+        res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
+                                "Offensive": res["offensive_score"]}
+        return res, True
     # (1) unambiguous obscenity -> decisively Offensive (hard blocklist)
     if _hits(toks, _VULGAR):
         res = dict(res)
@@ -191,6 +220,9 @@ def context_reason(text, res):
                 "cues, so the system abstains and recommends human review.")
 
     if off:
+        if _threat(toks_list):
+            return ("It threatens violence against a person (e.g. “kill/harm you”) — "
+                    "a direct threat, which is offensive even without a slur.")
         w = _name(toks_list, _VULGAR)
         if w:
             return f"Contains an explicit obscene word (“{w}”), which is abusive in any context."
