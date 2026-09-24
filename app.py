@@ -59,7 +59,7 @@ _VULGAR = {
     "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා", "හුකනවා",
     "ලබ්බ", "පුක්මන්තා", "සක්කිලි", "හුකන්න",
     # english
-    "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt",
+    "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt", "kys",
 }
 # FRIENDLY address / positive slang — casual banter markers. When one of these is
 # present and there is NO obscenity, slur, or personal insult, the text reads as
@@ -138,21 +138,48 @@ def _name(tokens_list, rawset):
 _THREAT_STEMS = {"maran", "marila", "maramu", "mare", "nariye", "nariya",
                  "kapan", "kapal", "gahan", "wanasa", "vinasa", "diyawe"}
 _THREAT_SCRIPT = ("මර", "මැරෙ", "කප", "නස", "නරිය", "විනාශ", "වනස")
-_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta",
-                 "muna", "yako", "yako"}
+_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta", "yako"}
 _TARGET_SCRIPT = ("උඹ", "ඔය", "තෝ", "තො", "තම", "උන්")
+# English (code-mixed) — exact tokens, not prefixes, to avoid "youtube"/"under"
+_EN_TARGET = {"you", "your", "yourself", "urself", "ur", "u"}
+_EN_VIOLENCE = ("kill", "murder", "stab", "shoot", "rape", "strangle")
+# Negation: a negated verb form (-nne / -න්නේ … na/නෑ), "epa" (don't), "nemei" (is not).
+# A negated threat/insult ("won't kill you", "you're not an idiot") must NOT be forced.
+_NEG_WORDS = {"nemei", "newei", "neme", "nevei", "epa", "නෙමෙයි", "නෙවෙයි", "එපා"}
+_NEG_TAIL = {"na", "nae", "naha", "nehe", "නෑ", "නැහැ", "නැ", "නැත"}
+
+
+def _script_dominant(text):
+    """True if the text is mostly Sinhala script (SOLD-style). The rescue rules
+    target romanized/code-mixed usage, so we do NOT apply them to script-dominant
+    text (where they slightly hurt) — but safety UPGRADES still apply to both."""
+    sin = sum(1 for c in str(text) if "඀" <= c <= "෿")
+    lat = sum(1 for c in str(text) if c.isascii() and c.isalpha())
+    return sin > lat
 
 
 def _has_target(tokens_list):
-    """Is a second-/third-person target addressed? (umba, umbawa, oya, උඹව …)"""
+    """Is a second-/third-person target addressed? (umba, umbawa, oya, උඹව, you …)"""
     ts = tuple(_TARGET_STEMS)
-    return any(w.startswith(ts) or w.startswith(_TARGET_SCRIPT) for w in tokens_list)
+    return any(w.startswith(ts) or w.startswith(_TARGET_SCRIPT) or w in _EN_TARGET
+               for w in tokens_list)
 
 
 def _threat(tokens_list):
     vs = tuple(_THREAT_STEMS)
-    has_v = any(w.startswith(vs) or w.startswith(_THREAT_SCRIPT) for w in tokens_list)
+    has_v = any(w.startswith(vs) or w.startswith(_THREAT_SCRIPT) or w.startswith(_EN_VIOLENCE)
+                for w in tokens_list)
     return has_v and _has_target(tokens_list)
+
+
+def _negated(tokens_list):
+    """Sinhala negation: 'maranne na' (won't kill), 'maranna epa' (don't kill),
+    'modayek nemei' (not an idiot). If present, we let the model decide instead
+    of force-flagging — a negated threat is not a threat."""
+    if any(w in _NEG_WORDS for w in tokens_list):
+        return True
+    neg_verb = any(w.endswith(("nne", "nnee", "න්නේ", "න්නෙ")) for w in tokens_list)
+    return neg_verb and any(w in _NEG_TAIL for w in tokens_list)
 
 
 def _force(res, floor):
@@ -187,11 +214,12 @@ def apply_safety_net(text, res):
     tgt = _has_target(toks_list)                 # is a person being addressed?
 
     # ── UPGRADES: backstop the model on clearly-offensive content it may miss ──
-    if _threat(toks_list):                        # violence / "go die" at a person
+    neg = _negated(toks_list)                    # "won't kill you" is not a threat
+    if _threat(toks_list) and not neg:            # violence / "go die" at a person
         return _force(res, 0.93)
     if _hits(toks, _VULGAR):                       # unambiguous obscenity
         return _force(res, 0.92)
-    if tgt and _hits(toks, _HARD):                 # name-call / dehumanize a person
+    if tgt and _hits(toks, _HARD) and not neg:     # name-call / dehumanize a person
         return _force(res, 0.90)
     if _hits(toks, _GROUP_TERMS) and (_hits(toks, _HOSTILE_VERB) or "para" in toks
                                       or _hits(toks, {"ida", "epa", "nathi", "aylawa"})):
@@ -202,6 +230,8 @@ def apply_safety_net(text, res):
         return res, False
     if _hits(toks, _HARD) or _hits(toks, _GROUP):
         return res, False                          # real insult / coded hate — leave it
+    if _script_dominant(text):
+        return res, False                          # rescues are for romanized input only
     if _hits(toks, _SOFT):
         if _hits(toks, _TARGET) or tgt:
             return res, False                      # "umba moda" — aimed at a person, keep it
