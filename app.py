@@ -89,8 +89,22 @@ _CASUAL = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "machan",
            "උඹ", "උබ", "උඹල", "තෝ", "මචන්", "මල්ලි", "අයිය"}
 
 
+_LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t",
+                       "@": "a", "$": "s", "!": "i"})
+
+
+def _deobf(text):
+    """Undo common filter-evasion: leetspeak (p@ko, hu77a, m0daya) and letters split
+    by punctuation (p.a.k.o, p-a-k-o). Used ONLY for lexicon matching; the model
+    still receives the raw text."""
+    t = str(text).lower().translate(_LEET)
+    # join single letters separated by . - _ *  ->  "p.a.k.o" => "pako"
+    t = _re.sub(r"\b(?:\w[.\-_*]+)+\w\b", lambda m: _re.sub(r"[.\-_*]", "", m.group(0)), t)
+    return t
+
+
 def _tokens(text):
-    return _re.findall(r"[\w඀-෿]+", str(text).lower())
+    return _re.findall(r"[\w඀-෿]+", _deobf(text))
 
 
 def _norm(w):
