@@ -18,303 +18,27 @@ MAX_LEN = 128
 ID2LABEL = {0: "Not offensive", 1: "Offensive"}
 OFF = 1
 
-# ── Hybrid lexical safety net ────────────────────────────────────────────────
-# Production content-moderation systems are hybrid: a neural model + a thin
-# lexical layer that catches its systematic errors. Ours corrects ONE known
-# failure mode — casual second-person chat ("umba kohomada", "machan umba
-# enawada") where an informal pronoun alone must never count as hate. The rule
-# fires ONLY when the model says Offensive but the text carries NO recognisable
-# insult / vulgar / slur / group-hate cue, so it can never hide coded hate
-# (which contains a group term) or slur-based abuse (which contains an insult).
-import re as _re
+# ── Linguistic safety layer ──────────────────────────────────────────────────
+# Threats (incl. pro-drop Sinhala threats with no pronoun), curses, identity-based hate,
+# obscenity and name-calling — the harms the neural model is weakest on — plus narrow
+# rescues of its known false positives. It lives in rules.py so it is tested offline
+# (scripts/eval_suite.py, scripts/audit_youtube.py) without Streamlit.
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rules import analyse, apply_safety_net, context_reason, evidence  # noqa: E402
 
-# HARD abuse — vulgar words, slurs, and NOUN-FORM name-calls ("an idiot / a dog").
-# Their presence always keeps the model's Offensive verdict (never rescued).
-_HARD = {
-    # noun-form name-calls (calling a PERSON one of these = insult)
-    "modaya", "modayo", "modayek", "modayaa", "gonaa", "gonek", "gonaaa",
-    "buruwa", "booruwa", "buruwek", "balla", "ballo", "ballek", "pissa", "pissek",
-    "pissi", "pissu", "yako", "harakaa", "gawaya",
-    # vulgar / obscene
-    "pako", "pakaya", "puka", "keri", "hutta", "hutto", "huththa", "huttek",
-    "wesi", "wesa", "wesii", "ponna", "ponnaya", "kariya", "hukanna",
-    # script
-    "මෝඩයා", "මෝඩයෙක්", "බූරුවා", "ගොනා", "බල්ලා", "බල්ලො", "බල්ලෙක්",
-    "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා",
-    # english
-    "idiot", "bitch", "bastard", "fuck", "shit", "asshole", "moron", "retard",
-    "slut", "whore",
+RULE_NAMES = {
+    "threat_target": "threat of violence", "threat_implied": "threat of violence (implied target)",
+    "violence_call": "call for violence", "curse": "death wish / curse",
+    "group_slur": "identity slur", "group_violence": "violence against a group",
+    "group_expulsion": "expulsion of a group", "group_dehumanise": "dehumanising a group",
+    "group_boycott": "hate trope / boycott call", "vulgar": "obscenity", "name_call": "name-calling",
+    "endearment": "endearment", "literal_verb": "literal action verb", "soft_thing": "mild word about a thing",
+    "figurative": "figurative 'dying' (of laughter, hunger...)",
+    "negated": "negated threat", "counter_speech": "counter-speech", "supportive": "supportive statement",
+    "festival": "religious/cultural observance (bias correction)",
+    "casual": "casual / friendly chat",
 }
-# VULGAR — ONLY genuinely unambiguous obscenities that have no friendly meaning
-# in any register. Context-dependent words (e.g. "bosa", which is also friendly
-# slang for "boss/bro") are deliberately NOT here — the model + context rules
-# decide those. This tiny hard list just makes true obscenities decisive.
-_VULGAR = {
-    "pako", "paka", "pakaya", "pake", "puka", "pukmantha", "keri", "hutta", "hutto",
-    "huththa", "huttek", "wesi", "wesawa", "ponnaya", "kariya", "kimba", "labba",
-    "kukku", "hukanna", "hukana", "hukanawa", "huka", "hukapan", "tauka", "taukanawa",
-    "sakkili", "sakkiliya", "konakapala", "junda", "ambakissa",
-    "wallapatta", "valaththaya", "lowanawa",
-    # script (Sinhala Unicode bad-word list)
-    "පක", "පකයා", "පුක", "හුත්ත", "හුත්තො", "කැරි", "වේසි", "පොන්නයා", "හුකනවා",
-    "ලබ්බ", "පුක්මන්තා", "සක්කිලි", "හුකන්න",
-    # english
-    "fuck", "fucking", "bitch", "asshole", "slut", "whore", "cunt", "kys",
-}
-# FRIENDLY address / positive slang — casual banter markers. When one of these is
-# present and there is NO obscenity, slur, or personal insult, the text reads as
-# friendly ("bosa machan", "ela macho", "supiri bro").
-_FRIENDLY = {"machan", "machang", "macho", "bosa", "boss", "bro", "brother",
-             "yaluwa", "yaaluwa", "aiya", "malli", "nangi", "patiya", "patiyo",
-             "chooti", "putha", "ela", "supiri", "niyamai", "superb", "adarei",
-             "raja", "elakiri",
-             "මචන්", "බොස", "අයිය", "මල්ලි", "පැටියා", "එළකිරි"}
-# SOFT words — "stupid / foolish / donkey" as an ADJECTIVE. Offensive ONLY when
-# aimed at a person (a target pronoun is present); harmless when describing an
-# action or thing ("moda wada karanna epa" = "don't do foolish things").
-_SOFT = {"moda", "gon", "gona", "buru", "modai", "gonai",
-         "මෝඩ", "ගොන්", "බුරු"}
-# person-target pronouns — a SOFT word + one of these = an insult aimed at someone
-_TARGET = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "oya",
-           "oyaa", "oyaata", "oyala", "oyaala", "eyaa", "eyaata", "un", "unta",
-           "meya", "muney", "thamuse", "thamuse", "උඹ", "උබ", "තෝ", "ඔය", "එයා"}
-# group / targeted-hate cues — presence BLOCKS any rescue (protects coded hate)
-_GROUP = {"demala", "thambi", "para", "muslim", "yanna", "elawanna", "nathi",
-          "wanaganna", "haralla", "දෙමළ", "තම්බි", "පර"}
-# informal / friendly words that TRIGGER the rescue check when nothing is abusive
-# Only genuine casual-ADDRESS / low-register pronouns — NOT generic common words
-# (mama/eka/oya/wada were too broad and wrongly rescued real offensive posts).
-_CASUAL = {"umba", "uba", "umbala", "umbata", "tho", "thopi", "thou", "machan",
-           "macho", "malli", "aiya", "yaluwa", "yaaluwa", "bro", "ban", "bn",
-           "උඹ", "උබ", "උඹල", "තෝ", "මචන්", "මල්ලි", "අයිය"}
-
-
-_LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t",
-                       "@": "a", "$": "s", "!": "i"})
-
-
-def _deobf(text):
-    """Undo common filter-evasion: leetspeak (p@ko, hu77a, m0daya) and letters split
-    by punctuation (p.a.k.o, p-a-k-o). Used ONLY for lexicon matching; the model
-    still receives the raw text."""
-    t = str(text).lower().translate(_LEET)
-    # join single letters separated by . - _ *  ->  "p.a.k.o" => "pako"
-    t = _re.sub(r"\b(?:\w[.\-_*]+)+\w\b", lambda m: _re.sub(r"[.\-_*]", "", m.group(0)), t)
-    return t
-
-
-def _tokens(text):
-    return _re.findall(r"[\w඀-෿]+", _deobf(text))
-
-
-def _norm(w):
-    """Normalise romanized-Sinhala spelling so variants collapse to one form.
-    Romanized Sinhala has no fixed spelling (hutta/huththa/huttoo, modaya/moodayaa),
-    which the literature names as the hardest part of the task. We fold aspirated
-    digraphs to plain, unify w/v, and squeeze repeated letters, so a single lexicon
-    entry matches all its spellings."""
-    w = w.lower()
-    for a, b in (("th", "t"), ("dh", "d"), ("bh", "b"), ("gh", "g"),
-                 ("kh", "k"), ("ph", "p"), ("sh", "s")):
-        w = w.replace(a, b)
-    w = w.replace("v", "w")
-    out = []
-    for ch in w:                       # collapse runs of the same char (aa->a, tt->t)
-        if not out or out[-1] != ch:
-            out.append(ch)
-    return "".join(out)
-
-
-def _norms(rawset):
-    return {_norm(w) for w in rawset}
-
-
-def _hits(text_norm_toks, rawset):
-    """True-ish set: normalized input tokens that match the normalized lexicon."""
-    return text_norm_toks & _norms(rawset)
-
-
-def _name(tokens_list, rawset):
-    """Return the ORIGINAL word whose normalized form is in the lexicon (for reasons)."""
-    rn = _norms(rawset)
-    for w in tokens_list:
-        if _norm(w) in rn:
-            return w
-    return None
-
-
-# ── Threat detection (violence verb aimed at a person) ────────────────────────
-# Threats often carry NO slur, so the model can miss them ("man umbawa maranawa"
-# = "I will kill you"). We match verb + target by STEM so inflections (umbawa,
-# උඹව, maranawa, මරන්න) are all caught.
-# violence verbs (maranawa=kill, kapanawa=cut, gahanawa=hit) AND "go die" verbs
-# (maren/marenna, nariyenna=perish, diyawela=drown) — matched by stem.
-_THREAT_STEMS = {"maran", "marila", "maramu", "mare", "nariye", "nariya",
-                 "kapan", "kapal", "gahan", "wanasa", "vinasa", "diyawe"}
-_THREAT_SCRIPT = ("මර", "මැරෙ", "කප", "නස", "නරිය", "විනාශ", "වනස")
-_TARGET_STEMS = {"umba", "umb", "uba", "tho", "topi", "oya", "thamuse", "unta", "yako"}
-_TARGET_SCRIPT = ("උඹ", "ඔය", "තෝ", "තො", "තම", "උන්")
-# English (code-mixed) — exact tokens, not prefixes, to avoid "youtube"/"under"
-_EN_TARGET = {"you", "your", "yourself", "urself", "ur", "u"}
-_EN_VIOLENCE = ("kill", "murder", "stab", "shoot", "rape", "strangle")
-# Negation: a negated verb form (-nne / -න්නේ … na/නෑ), "epa" (don't), "nemei" (is not).
-# A negated threat/insult ("won't kill you", "you're not an idiot") must NOT be forced.
-_NEG_WORDS = {"nemei", "newei", "neme", "nevei", "epa", "නෙමෙයි", "නෙවෙයි", "එපා"}
-_NEG_TAIL = {"na", "nae", "naha", "nehe", "නෑ", "නැහැ", "නැ", "නැත"}
-
-
-def _script_dominant(text):
-    """True if the text is mostly Sinhala script (SOLD-style). The rescue rules
-    target romanized/code-mixed usage, so we do NOT apply them to script-dominant
-    text (where they slightly hurt) — but safety UPGRADES still apply to both."""
-    sin = sum(1 for c in str(text) if "඀" <= c <= "෿")
-    lat = sum(1 for c in str(text) if c.isascii() and c.isalpha())
-    return sin > lat
-
-
-def _has_target(tokens_list):
-    """Is a second-/third-person target addressed? (umba, umbawa, oya, උඹව, you …)"""
-    ts = tuple(_TARGET_STEMS)
-    return any(w.startswith(ts) or w.startswith(_TARGET_SCRIPT) or w in _EN_TARGET
-               for w in tokens_list)
-
-
-def _threat(tokens_list):
-    vs = tuple(_THREAT_STEMS)
-    has_v = any(w.startswith(vs) or w.startswith(_THREAT_SCRIPT) or w.startswith(_EN_VIOLENCE)
-                for w in tokens_list)
-    return has_v and _has_target(tokens_list)
-
-
-def _negated(tokens_list):
-    """Sinhala negation: 'maranne na' (won't kill), 'maranna epa' (don't kill),
-    'modayek nemei' (not an idiot). If present, we let the model decide instead
-    of force-flagging — a negated threat is not a threat."""
-    if any(w in _NEG_WORDS for w in tokens_list):
-        return True
-    neg_verb = any(w.endswith(("nne", "nnee", "න්නේ", "න්නෙ")) for w in tokens_list)
-    return neg_verb and any(w in _NEG_TAIL for w in tokens_list)
-
-
-def _force(res, floor):
-    res = dict(res)
-    res["label"] = "Offensive"
-    res["offensive_score"] = max(res["offensive_score"], floor)
-    res["confidence"] = res["offensive_score"]
-    res["probabilities"] = {"Not offensive": 1.0 - res["offensive_score"],
-                            "Offensive": res["offensive_score"]}
-    return res, True
-
-
-def _rescue(res):
-    res = dict(res)
-    res["label"] = "Not offensive"
-    res["offensive_score"] = min(res["offensive_score"], 0.20)
-    res["confidence"] = 1.0 - res["offensive_score"]
-    res["probabilities"] = {"Not offensive": res["confidence"], "Offensive": res["offensive_score"]}
-    return res, True
-
-
-def apply_safety_net(text, res):
-    """Correct the model's systematic false positives on casual/idiomatic text.
-
-    Fires only when the model says Offensive. It never overrides a HARD insult,
-    a group-hate cue, or a SOFT word aimed at a person — so it cannot hide real
-    abuse. It rescues (a) a mild 'stupid/foolish' word used to describe an action
-    or thing, and (b) casual second-person chat with no abusive word at all.
-    Returns (res, fixed)."""
-    toks_list = _tokens(text)
-    toks = {_norm(w) for w in toks_list}         # spelling-normalized tokens
-    tgt = _has_target(toks_list)                 # is a person being addressed?
-
-    # ── UPGRADES: backstop the model on clearly-offensive content it may miss ──
-    neg = _negated(toks_list)                    # "won't kill you" is not a threat
-    if _threat(toks_list) and not neg:            # violence / "go die" at a person
-        return _force(res, 0.93)
-    if _hits(toks, _VULGAR):                       # unambiguous obscenity
-        return _force(res, 0.92)
-    if tgt and _hits(toks, _HARD) and not neg:     # name-call / dehumanize a person
-        return _force(res, 0.90)
-    if _hits(toks, _GROUP_TERMS) and (_hits(toks, _HOSTILE_VERB) or "para" in toks
-                                      or _hits(toks, {"ida", "epa", "nathi", "aylawa"})):
-        return _force(res, 0.90)                   # ethnic/religious slur or expulsion call
-
-    # ── RESCUES: fix the model's false positives (only when it said Offensive) ──
-    if res["label"] != "Offensive":
-        return res, False
-    if _hits(toks, _HARD) or _hits(toks, _GROUP):
-        return res, False                          # real insult / coded hate — leave it
-    if _script_dominant(text):
-        return res, False                          # rescues are for romanized input only
-    if _hits(toks, _SOFT):
-        if _hits(toks, _TARGET) or tgt:
-            return res, False                      # "umba moda" — aimed at a person, keep it
-        return _rescue(res)                        # "moda wada karanna epa" — describes a thing
-    if _hits(toks, _CASUAL) or _hits(toks, _FRIENDLY):
-        return _rescue(res)                        # casual/friendly banter, nothing abusive
-    return res, False
-
-
-# ── Context reasoning (plain-language "why", beyond word highlighting) ─────────
-_ENDEAR_MARK = {"mage", "ape", "adare", "adarei", "chooti", "rattaran", "punchi",
-                "sudu", "මගේ", "ආදරේ", "පුංචි"}
-_CHILD = {"patiya", "patiyo", "kolla", "kella", "duwa", "putha", "baba", "malli",
-          "nangi", "පැටියා", "කොල්ලා", "දුව"}
-_HOSTILE_VERB = {"yanna", "elawanna", "nathi", "wanaganna", "haralla", "palayan",
-                 "maranna", "එලවන්න", "යන්න"}
-_GROUP_TERMS = {"demala", "thambi", "muslim", "දෙමළ", "තම්බි"}   # for naming only
-
-
-def context_reason(text, res):
-    """Return a short, human-readable reason grounded in the CONTEXT signals —
-    not just which word lit up. Uses the same spelling-normalized matching."""
-    toks_list = _tokens(text)
-    tn = {_norm(w) for w in toks_list}          # normalized token set
-    off = res["label"] == "Offensive"
-    unc = 0.42 <= res["offensive_score"] <= 0.62
-
-    if unc:
-        return ("The wording is borderline — it carries both neutral and hostile "
-                "cues, so the system abstains and recommends human review.")
-
-    if off:
-        if _threat(toks_list):
-            return ("It threatens violence against a person (e.g. “kill/harm you”) — "
-                    "a direct threat, which is offensive even without a slur.")
-        w = _name(toks_list, _VULGAR)
-        if w:
-            return f"Contains an explicit obscene word (“{w}”), which is abusive in any context."
-        if _hits(tn, _HOSTILE_VERB) and (_hits(tn, _GROUP) or _hits(tn, _TARGET)):
-            g = _name(toks_list, _GROUP_TERMS)
-            who = f"a group (“{g}”)" if g else "a group of people"
-            return (f"It calls for {who} to be driven out or harmed — "
-                    "coded hate even though no explicit slur is used.")
-        gw = _name(toks_list, _GROUP_TERMS)
-        if gw:
-            return (f"It uses a slur/hostility against an ethnic or religious group (“{gw}”) — "
-                    "this is hate speech.")
-        w = _name(toks_list, _HARD)
-        if w:
-            return f"“{w}” is used to name-call a person — a direct personal insult."
-        w = _name(toks_list, _SOFT)
-        if w and _hits(tn, _TARGET):
-            t = _name(toks_list, _TARGET)
-            return f"An insult word (“{w}”) is aimed straight at a person (“{t}”)."
-        return "The overall wording reads as hostile/abusive from its context."
-
-    # not offensive
-    if _hits(tn, _ENDEAR_MARK) and (_hits(tn, _SOFT) or _hits(tn, _HARD) or _hits(tn, _CHILD)):
-        p = _name(toks_list, _SOFT | _HARD) or _name(toks_list, _CHILD)
-        return (f"“{p}” sits inside an affectionate frame (e.g. “mage … "
-                f"{_name(toks_list, _CHILD) or 'patiya'}”), so it reads as endearment, not an insult.")
-    w = _name(toks_list, _SOFT)
-    if w and not _hits(tn, _TARGET):
-        return f"“{w}” here describes an action or thing, not a person — so it isn’t a personal insult."
-    if _hits(tn, _FRIENDLY):
-        return f"Casual friendly address (“{_name(toks_list, _FRIENDLY)}”) with no abusive word — reads as friendly banter."
-    if _hits(tn, _CASUAL):
-        return f"An informal pronoun (“{_name(toks_list, _CASUAL)}”) in ordinary conversation — not offensive on its own."
-    return "No slur or hostile framing is present; the model reads it as ordinary language."
 
 st.set_page_config(page_title="Sinhala–English Hate Speech Detector",
                    page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
@@ -342,10 +66,10 @@ st.markdown(f"""
  .meter-marker {{ position:absolute; top:-5px; width:4px; height:26px; background:#12233a;
    border-radius:3px; transform:translateX(-2px); box-shadow:0 0 0 2px #fff; }}
  .meter-scale {{ display:flex; justify-content:space-between; font-size:11px; color:#7a869a; margin-top:2px; }}
- .hl {{ line-height:2.15; font-size:17px; padding:16px 18px; border-radius:12px;
+ .hl {{ color:#12233a; line-height:2.15; font-size:17px; padding:16px 18px; border-radius:12px;
    background:#f7f9fc; border:1px solid #e6ecf3; }}
  .hl span {{ padding:2px 3px; border-radius:5px; }}
- .legend span {{ display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:8px; }}
+ .legend span {{ color:#12233a; display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:8px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -357,7 +81,7 @@ def load_model():
     # fp32 because CPU inference needs full precision. low_cpu_mem_usage avoids the
     # transient 2x-memory spike at load time (keeps us under the free-tier RAM cap).
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_ID, low_cpu_mem_usage=True, torch_dtype=torch.float32).eval()
+        MODEL_ID, low_cpu_mem_usage=True, dtype=torch.float32).eval()
     torch.set_num_threads(2)
     return tok, model
 
@@ -370,6 +94,12 @@ except Exception as e:
     LOAD_ERR = str(e)
 
 
+# Decision threshold ships WITH the model (config.json "decision_threshold"), so the app can never pair a
+# model with the wrong threshold. v3 = 0.614 (label-free calibration); older models fall back to 0.5.
+THRESH = float(getattr(model.config, "decision_threshold", 0.5)) if MODEL_OK else 0.5
+UNC_LO, UNC_HI = 0.42, max(0.62, THRESH + 0.01)      # "Uncertain — recommend human review" band
+
+
 def _probs(texts):
     enc = tok(list(texts), truncation=True, max_length=MAX_LEN, padding=True, return_tensors="pt")
     with torch.no_grad():
@@ -378,11 +108,14 @@ def _probs(texts):
 
 def predict(text):
     p = _probs([str(text)])[0]
-    i = int(p.argmax())
+    i = OFF if p[OFF] >= THRESH else 1 - OFF
     res = {"label": ID2LABEL[i], "confidence": float(p[i]),
            "probabilities": {ID2LABEL[j]: float(p[j]) for j in range(2)},
-           "offensive_score": float(p[OFF])}
-    res, _ = apply_safety_net(text, res)
+           "offensive_score": float(p[OFF]), "model_score": float(p[OFF])}
+    sig = analyse(text)
+    res, _ = apply_safety_net(text, res, sig)
+    res["reason"] = context_reason(text, res, sig)
+    res["evidence"] = evidence(text, res, sig)
     return res
 
 
@@ -391,9 +124,9 @@ def predict_batch(texts, bs=32):
     for s in range(0, len(texts), bs):
         chunk = [str(t) for t in texts[s:s + bs]]
         for t, p in zip(chunk, _probs(chunk)):
-            i = int(p.argmax())
+            i = OFF if p[OFF] >= THRESH else 1 - OFF
             res = {"label": ID2LABEL[i], "confidence": float(p[i]),
-                   "offensive_score": float(p[OFF])}
+                   "offensive_score": float(p[OFF]), "model_score": float(p[OFF])}
             res, _ = apply_safety_net(t, res)
             out.append(res)
     return out
@@ -430,9 +163,11 @@ def render_highlight(pairs):
 with st.sidebar:
     st.markdown("### 🛡️ Model")
     st.caption(f"`{MODEL_ID}`")
-    st.markdown(f"""<div style='background:#fff;border:1px solid #e6ecf3;border-radius:12px;padding:14px'>
+    st.markdown(f"""<div style='background:#fff;color:#20334a;border:1px solid #e6ecf3;border-radius:12px;padding:14px'>
     <b>XLM-RoBERTa</b> · fine-tuned<br>Binary: Offensive / Not offensive<br>
-    + Focal Loss · SHAP/occlusion · transliteration & contrastive augmentation</div>""",
+    class-weighted fine-tuning · transliteration & contrastive augmentation<br>
+    + linguistic safety layer (threats, curses, identity hate)<br>
+    explanations: word-level occlusion</div>""",
                 unsafe_allow_html=True)
     st.divider()
     st.caption("Runs on CPU — first prediction takes a few seconds.")
@@ -443,8 +178,8 @@ st.markdown("""
   <h1>Sinhala–English Hate Speech Detector</h1>
   <p>Explainable offensive-language detection for Sinhala, English and code-mixed (Singlish) text.</p>
   <div style="margin-top:14px">
-    <span class="chip">XLM-RoBERTa</span><span class="chip">Focal Loss</span>
-    <span class="chip">Explainable (SHAP)</span><span class="chip">Context-aware</span>
+    <span class="chip">XLM-RoBERTa</span><span class="chip">Context-aware</span>
+    <span class="chip">Threat &amp; hate safety layer</span><span class="chip">Explainable</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -459,6 +194,7 @@ EXAMPLES = {
     "🇱🇰 Praise (Sinhala)": "ගොඩක් ස්තුතියි, හරිම ලස්සන පැහැදිලි කිරීමක්.",
     "❤️ Endearment (Singlish)": "mage buru patiya, adarei oyaata",
     "⚠️ Insult (Singlish)": "umba modaya, para balla",
+    "⚠️ Threat (no pronoun)": "කපල මරන්නේ දැන ගනින්",
     "⚠️ Coded hate": "oya aya ape ratin yanna ona",
     "🤝 Friendly slang": "bosa machan uba kohomada, ela video bro",
 }
@@ -467,18 +203,18 @@ with tab_a:
     st.markdown("##### Try an example")
     cols = st.columns(len(EXAMPLES))
     for col, (name, txt) in zip(cols, EXAMPLES.items()):
-        col.button(name, use_container_width=True,
+        col.button(name, width="stretch",
                    on_click=lambda t=txt: st.session_state.update(inp=t))
     st.text_area("Enter a comment", key="inp", height=110,
                  placeholder="Type a Sinhala / English / code-mixed comment…")
-    if st.button("Analyse comment", type="primary", use_container_width=True):
+    if st.button("Analyse comment", type="primary", width="stretch"):
         text = st.session_state.get("inp", "").strip()
         if not text:
             st.warning("Please enter a comment.")
         else:
             res = predict(text)
             poff = res["offensive_score"]
-            if 0.42 <= poff <= 0.62:
+            if not res.get("rule") and UNC_LO <= poff <= UNC_HI:
                 cls, emoji, lab = "r-unc", "🟠", "Uncertain"
                 sub = "Borderline — recommend human review (the model is not confident)."
             elif res["label"] == "Offensive":
@@ -503,9 +239,19 @@ with tab_a:
             st.markdown(
                 f"<div style='background:#eef4fb;border:1px solid #cfe0f3;border-left:5px solid {BLUE};"
                 f"border-radius:10px;padding:14px 16px;font-size:15.5px;color:#20334a'>"
-                f"{html.escape(context_reason(text, res))}</div>",
+                f"{html.escape(res['reason'])}</div>",
                 unsafe_allow_html=True)
-            with st.expander("Show word-level signals (how each word moves the model's raw score)"):
+            if res.get("rule"):
+                chips = "".join(f"<span style='background:#fde8c8;color:#5a3a00;border:1px solid #f0c27a;border-radius:6px;"
+                                f"padding:2px 8px;margin:2px 4px 2px 0;display:inline-block'>{html.escape(w)}</span>"
+                                for w in res.get("evidence", []))
+                st.markdown(
+                    f"<div style='margin-top:8px;font-size:14px;color:#20334a'>🛡️ <b>Decided by the linguistic "
+                    f"safety layer</b> — {html.escape(RULE_NAMES.get(res['rule'], res['rule']))}. "
+                    f"Neural model score alone: {res['model_score']:.0%}."
+                    + (f"<br>Trigger words: {chips}" if chips else "") + "</div>",
+                    unsafe_allow_html=True)
+            with st.expander("Show word-level signals from the neural model (its raw score, before the safety layer)"):
                 st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
                             "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span></div>",
                             unsafe_allow_html=True)
@@ -532,8 +278,10 @@ with tab_b:
                 preds = predict_batch(texts)
             out = pd.DataFrame({"text": texts,
                                 "prediction": [p["label"] for p in preds],
-                                "offensive_score": [round(p["offensive_score"], 3) for p in preds]})
-            st.dataframe(out, use_container_width=True, hide_index=True)
+                                "offensive_score": [round(p["offensive_score"], 3) for p in preds],
+                                "model_score": [round(p["model_score"], 3) for p in preds],
+                                "decided_by": [RULE_NAMES.get(p.get("rule"), "neural model") for p in preds]})
+            st.dataframe(out, width="stretch", hide_index=True)
             st.download_button("⬇️ Download CSV", out.to_csv(index=False).encode("utf-8"),
                                "predictions.csv", "text/csv")
 
@@ -541,9 +289,18 @@ with tab_c:
     st.markdown("""
 ### About
 An explainable **hybrid** system that flags **offensive language** in Sinhala, English and
-code-mixed (Singlish) text. A fine-tuned **XLM-RoBERTa** model (trained on the SOLD dataset with
-Focal Loss + contrastive/transliteration augmentation) reads the language, and a transparent
-**context layer** explains and safeguards each decision.
+code-mixed (Singlish) text. A fine-tuned **XLM-RoBERTa** model (SOLD dataset + transliteration and
+contrastive augmentation, class-weighted fine-tuning) reads the language, and a transparent
+**linguistic safety layer** catches what the model is blind to and explains each decision.
+
+**What the safety layer catches (the model alone misses most of these):**
+- **Threats**, including Sinhala *pro-drop* threats with no pronoun — *කපල මරන්නේ දැන ගනින්*
+  ("I'll cut and kill (you), know that") — recognised from the verb's intent form (-නවා, -න්නම්, -න්නේ),
+  intimidation markers (*දැනගනින්*, *බලාගනින්*) and serial verbs (*ගහලා මරනවා*).
+- **Curses / death wishes** (*maren yako*, *umbata hena gahanna*), **identity-based hate** (slurs such as
+  *hambaya*, calls to kill or expel a group, dehumanisation, boycott tropes), obscenity and name-calling.
+- It does **not** fire on literal verbs (*cake eka kapamu*, *current eka kapanawa*), news reports,
+  negated threats (*maranne na*), counter-speech, condolences (*මරණයට සංවේදනා*) or slang (*maru* = awesome).
 
 **How it reads context — not keywords:**
 - Tells an affectionate pejorative (*mage buru patiya*, "my darling") from a hostile one (*umba buruwa*).
