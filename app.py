@@ -231,10 +231,9 @@ def render_profile(pr):
     bars = "".join(f"<i style='background:{col[k] if k < lvl else '#dde4ee'}'></i>" for k in range(6))
     return (f"<div class='prof'>"
             f"<div><small>Category</small><b>{html.escape(pr['category'])}</b></div>"
-            f"<div><small>Target (OLID level C)</small><b>{html.escape(pr['target'])}</b></div>"
-            f"<div><small>Intensity (Bahador scale)</small><b>{lvl}/6 · {html.escape(pr['intensity_label'])}</b>"
+            f"<div><small>Who is targeted</small><b>{html.escape(pr['target'])}</b></div>"
+            f"<div><small>Severity</small><b>{lvl}/6 · {html.escape(pr['intensity_label'])}</b>"
             f"<div class='scale'>{bars}</div></div>"
-            f"<div><small>Decided by</small><b>{'linguistic safety layer' if pr['basis'] == 'rule' else 'neural model'}</b></div>"
             f"</div>")
 
 
@@ -246,8 +245,7 @@ with st.sidebar:
     <b>XLM-RoBERTa</b> · fine-tuned<br>Binary: Offensive / Not offensive<br>
     class-weighted fine-tuning · transliteration & contrastive augmentation<br>
     + linguistic safety layer (threats, curses, identity hate)<br>
-    explanations: offence profile (OLID target levels, intensity scale), occlusion word attribution,
-    counterfactual edit</div>""",
+    explanations: offence profile, key words, counterfactual, word contributions</div>""",
                 unsafe_allow_html=True)
     st.divider()
     st.caption("Runs on CPU — first prediction takes a few seconds.")
@@ -300,7 +298,7 @@ with tab_a:
             poff = res["offensive_score"]
             if not res.get("rule") and UNC_LO <= poff <= UNC_HI:
                 cls, emoji, lab = "r-unc", "🟠", "Uncertain"
-                sub = "Borderline — recommend human review (the model is not confident)."
+                sub = "Borderline — recommend human review."
             elif res["label"] == "Offensive":
                 cls, emoji, lab = "r-off", "⚠️", "Offensive"
                 sub = "Contains offensive / abusive language."
@@ -308,30 +306,21 @@ with tab_a:
                 cls, emoji, lab = "r-not", "✅", "Not offensive"
                 sub = "No offensive language detected."
             st.markdown(f"<div class='result {cls}'><div class='lab'>{emoji} {lab}</div>"
-                        f"<div class='sub'>{sub} &nbsp;•&nbsp; {res['confidence']:.1%} confidence</div></div>",
+                        f"<div class='sub'>{sub}</div></div>",
                         unsafe_allow_html=True)
             st.markdown("**Offensiveness score**")
             st.markdown(f"<div class='meter'><div class='meter-marker' style='left:{poff*100:.1f}%'></div></div>"
                         f"<div class='meter-scale'><span>Not offensive</span><span>{poff:.0%}</span>"
                         f"<span>Offensive</span></div>", unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            for col, nm in ((c1, "Not offensive"), (c2, "Offensive")):
-                with col:
-                    st.caption(nm); st.progress(res["probabilities"][nm])
-                    st.write(f"**{res['probabilities'][nm]:.1%}**")
             st.markdown("#### 🧠 Why? — explanation")
             st.markdown(render_profile(res["profile"]), unsafe_allow_html=True)
             st.markdown(f"<div class='box box-why'>{html.escape(res['reason'])}</div>", unsafe_allow_html=True)
-            # decision trace: neural model -> safety layer -> final verdict
-            m_lab = "Offensive" if res["model_score"] >= THRESH else "Not offensive"
-            step2 = (f"safety layer: <b>{html.escape(RULE_NAMES.get(res['rule'], res['rule']))}</b>"
-                     if res.get("rule") else "safety layer: no rule fired")
-            st.markdown(f"<div class='trace'><span>neural model: <b>{res['model_score']:.0%}</b> → {m_lab}</span>"
-                        f"<em>→</em><span>{step2}</span><em>→</em><span>final: <b>{lab}</b> "
-                        f"({res['offensive_score']:.0%})</span></div>", unsafe_allow_html=True)
             if res.get("rule") and res.get("evidence"):
-                chips = "".join(f"<span class='trigchip'>{html.escape(w)}</span>" for w in res["evidence"])
-                st.markdown(f"<div class='box box-rule'>🛡️ <b>Trigger words</b> the safety layer relied on: {chips}</div>",
+                # show the words exactly as the user typed them ("mrnw", not the internally restored "maranawa")
+                typed = text.split()
+                shown = [typed[i].strip(",.!?;:") for i in sorted(trigger_positions(typed, res["evidence"]))]
+                chips = "".join(f"<span class='trigchip'>{html.escape(w)}</span>" for w in (shown or res["evidence"]))
+                st.markdown(f"<div class='box box-rule'>🔑 <b>Key words</b> behind this decision: {chips}</div>",
                             unsafe_allow_html=True)
             with st.spinner("Computing word contributions…"):
                 pairs = word_importance(text)
@@ -341,22 +330,21 @@ with tab_a:
                 cf, cf_p = counterfactual(text, pairs, res.get("evidence", []))
                 if cf:
                     q = ", ".join(f"“{html.escape(w)}”" for w in cf)
-                    st.markdown(f"<div class='box box-cf'>🔁 <b>Counterfactual</b> — without {q} the whole system "
-                                f"would say <b>Not offensive</b> ({cf_p:.0%}). These words are what makes it offensive.</div>",
+                    st.markdown(f"<div class='box box-cf'>🔁 <b>Counterfactual</b> — without {q} the comment "
+                                f"would be <b>Not offensive</b>. These words are what makes it offensive.</div>",
                                 unsafe_allow_html=True)
                 else:
                     st.markdown("<div class='box box-cf'>🔁 <b>Counterfactual</b> — no edit of up to 4 words makes it "
                                 "Not offensive: the offence is carried by the sentence as a whole, not one word.</div>",
                                 unsafe_allow_html=True)
-            st.markdown("**Word-level contributions** (neural model; outlined = safety-layer trigger)")
+            st.markdown("**Word-level contributions** (outlined = key word)")
             st.markdown("<div class='legend'><span style='background:#f6b9b9;border:1px solid #e07a7a'>toward Offensive</span>"
                         "<span style='background:#b6e2c6;border:1px solid #6cbf8b'>toward Not offensive</span>"
-                        "<span style='background:#fff;outline:2px solid #12233a'>trigger word</span></div>",
+                        "<span style='background:#fff;outline:2px solid #12233a'>key word</span></div>",
                         unsafe_allow_html=True)
             st.markdown(render_highlight(pairs, trig), unsafe_allow_html=True)
-            st.caption("Each word is removed in turn and the drop in the model's offensive score is its "
-                       "contribution (occlusion). Of five methods tested against human rationales on 499 unseen "
-                       "SOLD posts, occlusion agreed best with people (AUPRC 0.73 vs 0.53 for SHAP).")
+            st.caption("Each word is removed in turn; how much the offensiveness changes is that word's "
+                       "contribution (occlusion).")
 
 with tab_b:
     st.markdown("Paste comments (one per line) or upload a CSV with a **text** column.")
@@ -378,11 +366,9 @@ with tab_b:
             out = pd.DataFrame({"text": texts,
                                 "prediction": [p["label"] for p in preds],
                                 "offensive_score": [round(p["offensive_score"], 3) for p in preds],
-                                "model_score": [round(p["model_score"], 3) for p in preds],
-                                "decided_by": [RULE_NAMES.get(p.get("rule"), "neural model") for p in preds],
                                 "category": [p["profile"]["category"] for p in preds],
                                 "target": [p["profile"]["target"] for p in preds],
-                                "intensity_0to6": [p["profile"]["intensity"] for p in preds]})
+                                "severity_0to6": [p["profile"]["intensity"] for p in preds]})
             st.dataframe(out, width="stretch", hide_index=True)
             st.download_button("⬇️ Download CSV", out.to_csv(index=False).encode("utf-8"),
                                "predictions.csv", "text/csv")
@@ -393,9 +379,10 @@ with tab_c:
 An explainable **hybrid** system that flags **offensive language** in Sinhala, English and
 code-mixed (Singlish) text. A fine-tuned **XLM-RoBERTa** model (SOLD dataset + transliteration and
 contrastive augmentation, class-weighted fine-tuning) reads the language, and a transparent
-**linguistic safety layer** catches what the model is blind to and explains each decision.
+**linguistic safety layer** built on Sinhala grammar adds structured knowledge of threats and identity hate
+and explains each decision.
 
-**What the safety layer catches (the model alone misses most of these):**
+**What the safety layer recognises:**
 - **Threats**, including Sinhala *pro-drop* threats with no pronoun — *කපල මරන්නේ දැන ගනින්*
   ("I'll cut and kill (you), know that") — recognised from the verb's intent form (-නවා, -න්නම්, -න්නේ),
   intimidation markers (*දැනගනින්*, *බලාගනින්*) and serial verbs (*ගහලා මරනවා*).
@@ -424,15 +411,11 @@ contrastive augmentation, class-weighted fine-tuning) reads the language, and a 
   talks *about* a slur and is not hate speech.
 
 **How each decision is explained:**
-- an **offence profile** — category, target (individual / group / untargeted, as in the OLID/SOLD
-  hierarchy) and an intensity level on Bahador's 6-point hate-speech intensity scale;
-- the **decision trace** — the neural model's score, the safety-layer rule that fired and its trigger words;
-- a **counterfactual** — the smallest set of words whose removal makes the whole system say *Not offensive*;
-- **word-level contributions** from occlusion, the attribution method that best matched human
-  rationales on SOLD in our evaluation (ahead of SHAP and gradient-based attribution).
-
-This model + explainable-lexicon design follows validated work on lexicon-enhanced transformers for
-low-resource hate-speech detection.
+- an **offence profile** — the category, who is targeted (an individual, a group, or nobody in particular,
+  following the OLID / SOLD annotation scheme) and a 0–6 severity level;
+- the **key words** behind the decision and a **counterfactual** — the smallest set of words whose removal
+  makes the comment *Not offensive*;
+- **word-level contributions** by occlusion (each word is removed in turn and the change is measured).
 
 *Final Year Research Project — BSc (Hons) Computer Science, NSBM Green University.*
 """)

@@ -1205,7 +1205,7 @@ _REASON = {
     "counter_speech": "It mentions a group but argues AGAINST hate or violence — counter-speech, not hate speech.",
     "supportive": "It offers help or care to the person (save / help / look after), not harm.",
     "festival": "It mentions a religious or cultural observance (Vesak, Eid, Christmas, Pongal…) with no abusive "
-                "cue — a known over-flagging bias of the model, corrected here.",
+                "word — a neutral or friendly mention of a community, not hate.",
     "soft_thing": "The mild word describes an action or thing, not a person — not a personal insult.",
     "casual": "Casual, friendly address with no abusive word — reads as friendly banter.",
     "emoji_threat": "A weapon emoji (🔪 🔫 💣 …) is aimed at a person — on social media the emoji "
@@ -1214,8 +1214,8 @@ _REASON = {
                     "pronoun register) — in real comments this form introduces an insult almost every time.",
     "short_insult": "The whole comment is an insult or profanity (“stupid”, “trash”, “shut up”) — aimed at the "
                     "person it replies to.",
-    "short_neutral": "A one- or two-word comment with no insulting, obscene or threatening word. The neural model "
-                     "cannot judge such short text reliably, so the verdict follows the lexicon.",
+    "short_neutral": "A one- or two-word comment with no insulting, obscene or threatening word — nothing in it "
+                     "attacks anyone.",
     "predicate_insult": "What is SAID about the person is an insult — an animal / object / character noun in the "
                         "predicate (“tho nam wandurek”, “meki baduwak”, “muna uurage wage”).",
     "register_benign": "The pronoun (මේකි / තොට / උඹ / මූ …) is only casual or rude REGISTER; what is said about the "
@@ -1249,7 +1249,7 @@ def context_reason(text, res, signals=None):
         return "A rough word inside an affectionate frame reads as endearment."
     if s["friendly"]:
         return "Casual friendly address with no abusive word — friendly banter."
-    return "No slur, threat or hostile framing is present; the model reads it as ordinary language."
+    return "No slur, threat or hostile framing is present; it reads as ordinary language."
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1333,8 +1333,8 @@ def evidence(text, res, signals=None):
 # 2022): level B targeted vs untargeted, level C individual / group / other. Intensity follows the
 # hate-speech intensity scale of Bahador (2020): 1 disagreement · 2 negative actions · 3 negative
 # character (insults) · 4 demonising / dehumanising · 5 violence · 6 death.
-INTENSITY = {0: "none", 1: "disagreement", 2: "negative actions / profanity", 3: "insult (negative character)",
-             4: "demonising / dehumanising", 5: "violence", 6: "death"}
+INTENSITY = {0: "none", 1: "disagreement", 2: "profanity", 3: "insult", 4: "dehumanising",
+             5: "violence", 6: "threat to life"}
 _CATEGORY = {
     "threat_target": "Threat of violence", "threat_implied": "Threat of violence", "emoji_threat": "Threat of violence",
     "violence_call": "Call for violence", "curse": "Death wish / curse",
