@@ -286,16 +286,16 @@ if not MODEL_OK:
 
 tab_a, tab_b, tab_c = st.tabs(["  🔎 Analyse  ", "  📦 Batch  ", "  ℹ️ About  "])
 
-EXAMPLES = {   # realistic social-media comments (label -> comment)
-    "👍 Praise": "Supiri video ekak machan, next part eka ikmanata danna 🔥",
-    "🏏 Cricket banter": "හෙට ක්‍රිකට් මැච් එකේදි අපි උඹලව කුඩු කරනවා 😂🏏",
-    "💬 Casual pronoun": "meki mara lassanai neda? 😍",
-    "🗣️ Civil criticism": "Me minister ge katha eka boru, data eka waradi. Evidence denna",
-    "✋ Counter-speech": "Racism is wrong. Muslim shops boycott karanna kiyana post share karanna epa",
-    "⚠️ Insult": "umba wage modayek nam dakala na, oluwe mola na",
-    "⚠️ Threat": "උඹව ගෙදර ඇවිත් කපනවා බලාගෙන හිටපන්",
-    "⚠️ Harassment": "Meki baduwak, number eka denna 😏",
-    "⚠️ Hate trope": "Muslim kadawalin badu ganna epa wanda pethi danawa",
+EXAMPLES = {   # REAL comments posted on social media (hand-labelled YouTube, SOLD / SHS datasets)
+    '👍 Praise': 'Lassanai nangi oyage katahada godak',
+    '😂 Friendly banter': 'Athal denda epa yakooo😂😂',
+    '💬 Rough but loving': 'යකෝ පිස්සු කෙලින්න එපා අපි උබට හරි ආදරෙයි බං',
+    '🏏 Cricket talk': 'මහීශ් තීක්ශනයට බැනල වැඩක් නෑ යකෝ ඌ සාධාරණයක් කරා මැච් එකට',
+    '🗣️ Criticism': 'දුම් පානය තියා පාන් ගෙඩියක් ගන්න මිනිස්සුට සල්ලි නෑ. ඔයාලා මීඩීයා ගේම් ගහලා ගෙනාපු ආණ්ඩුව තමා.',
+    '⚠️ Insult': 'Ane pale ballo',
+    '⚠️ Death wish': 'තොට කොරෝනා හැදිලම මැරියන්',
+    '⚠️ Sexist insult': 'මේ මොන පිස්සු ගෑනියෙක්ද?',
+    '⚠️ Ethnic slur': 'කොයි පොතේද ඕව ලියල තියෙන්නේ කියලා අපිටත් කියපන්කො හම්බයො',
 }
 
 with tab_a:
@@ -304,10 +304,11 @@ with tab_a:
     for row in range(0, len(items), 3):
         for col, (name, txt) in zip(st.columns(3), items[row:row + 3]):
             col.button(name, width="stretch",
-                       on_click=lambda t=txt: st.session_state.update(inp=t))
+                       on_click=lambda t=txt: st.session_state.update(inp=t, run_now=True))  # one click = analysed
     st.text_area("Enter a comment", key="inp", height=110,
                  placeholder="Type a Sinhala / English / code-mixed comment…")
-    if st.button("Analyse comment", type="primary", width="stretch"):
+    clicked = st.button("Analyse comment", type="primary", width="stretch")
+    if clicked or st.session_state.pop("run_now", False):
         text = st.session_state.get("inp", "").strip()
         if not text:
             st.warning("Please enter a comment.")
