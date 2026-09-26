@@ -24,7 +24,13 @@ OFF = 1
 # rescues of its known false positives. It lives in rules.py so it is tested offline
 # (scripts/eval_suite.py, scripts/audit_youtube.py) without Streamlit.
 import sys as _sys
+import importlib as _importlib
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rules as _rules  # noqa: E402
+# Streamlit re-runs this script on every interaction and after a redeploy, but keeps imported modules
+# cached: without a reload, a pushed rules.py is ignored until the server restarts (and a new app.py
+# importing new names from the OLD cached module fails with ImportError).
+_rules = _importlib.reload(_rules)
 from rules import analyse, apply_safety_net, context_reason, evidence, light_normalize, profile, tokenize  # noqa: E402
 
 RULE_NAMES = {
