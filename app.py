@@ -25,7 +25,7 @@ OFF = 1
 # (scripts/eval_suite.py, scripts/audit_youtube.py) without Streamlit.
 import sys as _sys
 _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from rules import analyse, apply_safety_net, context_reason, evidence  # noqa: E402
+from rules import analyse, apply_safety_net, context_reason, evidence, light_normalize, profile, tokenize  # noqa: E402
 
 RULE_NAMES = {
     "threat_target": "threat of violence", "threat_implied": "threat of violence (implied target)",
@@ -38,6 +38,10 @@ RULE_NAMES = {
     "negated": "negated threat", "counter_speech": "counter-speech", "supportive": "supportive statement",
     "festival": "religious/cultural observance (bias correction)",
     "casual": "casual / friendly chat",
+    "emoji_threat": "weapon emoji aimed at a person", "mention": "word mentioned, not used",
+    "rude_address": "contemptuous address (තොගේ / තොපේ)", "short_insult": "one-word insult",
+    "short_neutral": "short text without abusive content", "play_context": "gaming / sports banter",
+    "predicate_insult": "insult in what is said about the person", "register_benign": "rude-casual pronoun, harmless meaning",
 }
 
 st.set_page_config(page_title="Sinhala–English Hate Speech Detector",
@@ -70,6 +74,24 @@ st.markdown(f"""
    background:#f7f9fc; border:1px solid #e6ecf3; }}
  .hl span {{ padding:2px 3px; border-radius:5px; }}
  .legend span {{ color:#12233a; display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; margin-right:8px; }}
+ .hl span.trig {{ outline:2px solid #12233a; outline-offset:1px; font-weight:700; }}
+ /* every custom box sets its own background AND text colour, so it stays readable in dark mode */
+ .box {{ border-radius:10px; padding:14px 16px; font-size:15px; color:#20334a; background:#eef4fb;
+   border:1px solid #cfe0f3; margin:6px 0; }}
+ .box-why {{ border-left:5px solid {BLUE}; font-size:15.5px; }}
+ .box-rule {{ background:#fff7ea; border:1px solid #f0c27a; border-left:5px solid {AMBER}; color:#3d2a05; }}
+ .box-cf {{ background:#f3f0fb; border:1px solid #d6cdf0; border-left:5px solid #6b4fbb; color:#261a4a; }}
+ .trigchip {{ background:#fde8c8; color:#5a3a00; border:1px solid #f0c27a; border-radius:6px;
+   padding:2px 8px; margin:2px 4px 2px 0; display:inline-block; }}
+ .prof {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:6px 0 4px; }}
+ .prof div {{ background:#f7f9fc; color:#12233a; border:1px solid #e6ecf3; border-radius:10px; padding:10px 12px; }}
+ .prof small {{ display:block; color:#5d6b80; font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; }}
+ .prof b {{ font-size:15px; }}
+ .scale {{ display:flex; gap:3px; margin-top:6px; }}
+ .scale i {{ flex:1; height:7px; border-radius:3px; background:#dde4ee; }}
+ .trace {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:14px; margin:4px 0 2px; }}
+ .trace span {{ background:#f7f9fc; color:#12233a; border:1px solid #e6ecf3; border-radius:8px; padding:6px 10px; }}
+ .trace em {{ color:#7a869a; font-style:normal; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -101,7 +123,10 @@ UNC_LO, UNC_HI = 0.42, max(0.62, THRESH + 0.01)      # "Uncertain — recommend 
 
 
 def _probs(texts):
-    enc = tok(list(texts), truncation=True, max_length=MAX_LEN, padding=True, return_tensors="pt")
+    # the model sees evasion-normalised text (invisible characters, look-alike letters, s p a c e d words);
+    # measured neutral on every benchmark and 2x more robust to homoglyphs (EVALUATION.md, round 3)
+    texts = [light_normalize(t) for t in texts]
+    enc = tok(texts, truncation=True, max_length=MAX_LEN, padding=True, return_tensors="pt")
     with torch.no_grad():
         return torch.softmax(model(**enc).logits, dim=1).numpy()
 
@@ -116,6 +141,7 @@ def predict(text):
     res, _ = apply_safety_net(text, res, sig)
     res["reason"] = context_reason(text, res, sig)
     res["evidence"] = evidence(text, res, sig)
+    res["profile"] = profile(text, res, sig)
     return res
 
 
@@ -127,19 +153,52 @@ def predict_batch(texts, bs=32):
             i = OFF if p[OFF] >= THRESH else 1 - OFF
             res = {"label": ID2LABEL[i], "confidence": float(p[i]),
                    "offensive_score": float(p[OFF]), "model_score": float(p[OFF])}
-            res, _ = apply_safety_net(t, res)
+            sig = analyse(t)
+            res, _ = apply_safety_net(t, res, sig)
+            res["profile"] = profile(t, res, sig)
             out.append(res)
     return out
 
 
-def word_importance(text):
+XAI_METHOD = "delete"  # best of delete / mask / hybrid / SHAP / grad x input on SOLD human rationales
+                       # (scripts/eval_xai.py, 499 unseen posts: AUPRC .733, comprehensiveness .521)
+
+
+def word_importance(text, method=XAI_METHOD):
+    """Occlusion attribution per word: p(full) - p(text with the word hidden).
+    'delete' drops the word; 'mask' replaces it with XLM-R's <mask> token. Delete agreed slightly better
+    with human rationales and was more faithful (EVALUATION.md, round 3), so it is the default."""
     words = str(text).split()
     if not words:
         return []
-    base = float(_probs([str(text)])[0][OFF])
-    variants = [" ".join(words[:i] + words[i + 1:]) or "." for i in range(len(words))]
-    without = _probs(variants)[:, OFF]
-    return [(w, float(base - wo)) for w, wo in zip(words, without)]
+    fill = [tok.mask_token] if method == "mask" else []
+    variants = [" ".join(words[:i] + fill + words[i + 1:]) or "." for i in range(len(words))]
+    p = _probs([str(text)] + variants)[:, OFF]
+    return [(w, float(p[0] - wo)) for w, wo in zip(words, p[1:])]
+
+
+def trigger_positions(words, ev):
+    """Indices of whitespace words that contain a safety-layer trigger word."""
+    evs = {e.lower() for e in ev}
+    return {i for i, w in enumerate(words) if set(tokenize(w)[0]) & evs or any(e in w for e in evs if not e.isalnum())}
+
+
+def counterfactual(text, pairs, ev, max_edits=4):
+    """Smallest greedy edit that flips the FULL system (model + safety layer) to Not offensive:
+    hide the safety layer's trigger words first, then the words that push the model hardest.
+    A contrastive explanation ("it is offensive BECAUSE of these words"), after Wachter et al. (2017)."""
+    words = str(text).split()
+    trig = trigger_positions(words, ev)
+    order = sorted(trig, key=lambda i: -pairs[i][1]) + \
+        [i for i, (_, s) in sorted(enumerate(pairs), key=lambda x: -x[1][1]) if s > 0 and i not in trig]
+    removed = []
+    for i in order[:max_edits]:
+        removed.append(i)
+        kept = [w for j, w in enumerate(words) if j not in removed]
+        r = predict(" ".join(kept) or ".")
+        if r["label"] != "Offensive":
+            return [words[j] for j in sorted(removed)], r["offensive_score"]
+    return None, None
 
 
 def color_for(score, mx):
@@ -150,13 +209,27 @@ def color_for(score, mx):
     return f"rgba({r},{g},{b},{a:.2f})"
 
 
-def render_highlight(pairs):
+def render_highlight(pairs, trig=()):
     if not pairs:
         return "<div class='hl'><i>No words to explain.</i></div>"
     mx = max((abs(s) for _, s in pairs), default=0.0)
-    spans = [f"<span style='background:{color_for(s, mx)}' title='{s:+.3f}'>{html.escape(w)}</span>"
-             for w, s in pairs]
+    spans = [f"<span class='{'trig' if i in trig else ''}' style='background:{color_for(s, mx)}' "
+             f"title='model contribution {s:+.3f}'>{html.escape(w)}</span>"
+             for i, (w, s) in enumerate(pairs)]
     return "<div class='hl'>" + " ".join(spans) + "</div>"
+
+
+def render_profile(pr):
+    lvl = pr["intensity"]
+    col = [GREEN, "#8bbf4a", AMBER, "#e0702b", RED, "#b71c1c"]
+    bars = "".join(f"<i style='background:{col[k] if k < lvl else '#dde4ee'}'></i>" for k in range(6))
+    return (f"<div class='prof'>"
+            f"<div><small>Category</small><b>{html.escape(pr['category'])}</b></div>"
+            f"<div><small>Target (OLID level C)</small><b>{html.escape(pr['target'])}</b></div>"
+            f"<div><small>Intensity (Bahador scale)</small><b>{lvl}/6 · {html.escape(pr['intensity_label'])}</b>"
+            f"<div class='scale'>{bars}</div></div>"
+            f"<div><small>Decided by</small><b>{'linguistic safety layer' if pr['basis'] == 'rule' else 'neural model'}</b></div>"
+            f"</div>")
 
 
 # ── Sidebar ──
@@ -167,7 +240,8 @@ with st.sidebar:
     <b>XLM-RoBERTa</b> · fine-tuned<br>Binary: Offensive / Not offensive<br>
     class-weighted fine-tuning · transliteration & contrastive augmentation<br>
     + linguistic safety layer (threats, curses, identity hate)<br>
-    explanations: word-level occlusion</div>""",
+    explanations: offence profile (OLID target levels, intensity scale), occlusion word attribution,
+    counterfactual edit</div>""",
                 unsafe_allow_html=True)
     st.divider()
     st.caption("Runs on CPU — first prediction takes a few seconds.")
@@ -235,29 +309,44 @@ with tab_a:
                 with col:
                     st.caption(nm); st.progress(res["probabilities"][nm])
                     st.write(f"**{res['probabilities'][nm]:.1%}**")
-            st.markdown("#### 🧠 Why? — context reasoning")
-            st.markdown(
-                f"<div style='background:#eef4fb;border:1px solid #cfe0f3;border-left:5px solid {BLUE};"
-                f"border-radius:10px;padding:14px 16px;font-size:15.5px;color:#20334a'>"
-                f"{html.escape(res['reason'])}</div>",
-                unsafe_allow_html=True)
-            if res.get("rule"):
-                chips = "".join(f"<span style='background:#fde8c8;color:#5a3a00;border:1px solid #f0c27a;border-radius:6px;"
-                                f"padding:2px 8px;margin:2px 4px 2px 0;display:inline-block'>{html.escape(w)}</span>"
-                                for w in res.get("evidence", []))
-                st.markdown(
-                    f"<div style='margin-top:8px;font-size:14px;color:#20334a'>🛡️ <b>Decided by the linguistic "
-                    f"safety layer</b> — {html.escape(RULE_NAMES.get(res['rule'], res['rule']))}. "
-                    f"Neural model score alone: {res['model_score']:.0%}."
-                    + (f"<br>Trigger words: {chips}" if chips else "") + "</div>",
-                    unsafe_allow_html=True)
-            with st.expander("Show word-level signals from the neural model (its raw score, before the safety layer)"):
-                st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
-                            "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span></div>",
+            st.markdown("#### 🧠 Why? — explanation")
+            st.markdown(render_profile(res["profile"]), unsafe_allow_html=True)
+            st.markdown(f"<div class='box box-why'>{html.escape(res['reason'])}</div>", unsafe_allow_html=True)
+            # decision trace: neural model -> safety layer -> final verdict
+            m_lab = "Offensive" if res["model_score"] >= THRESH else "Not offensive"
+            step2 = (f"safety layer: <b>{html.escape(RULE_NAMES.get(res['rule'], res['rule']))}</b>"
+                     if res.get("rule") else "safety layer: no rule fired")
+            st.markdown(f"<div class='trace'><span>neural model: <b>{res['model_score']:.0%}</b> → {m_lab}</span>"
+                        f"<em>→</em><span>{step2}</span><em>→</em><span>final: <b>{lab}</b> "
+                        f"({res['offensive_score']:.0%})</span></div>", unsafe_allow_html=True)
+            if res.get("rule") and res.get("evidence"):
+                chips = "".join(f"<span class='trigchip'>{html.escape(w)}</span>" for w in res["evidence"])
+                st.markdown(f"<div class='box box-rule'>🛡️ <b>Trigger words</b> the safety layer relied on: {chips}</div>",
                             unsafe_allow_html=True)
-                with st.spinner("Computing word contributions…"):
-                    pairs = word_importance(text)
-                st.markdown(render_highlight(pairs), unsafe_allow_html=True)
+            with st.spinner("Computing word contributions…"):
+                pairs = word_importance(text)
+            words = text.split()
+            trig = trigger_positions(words, res.get("evidence", []))
+            if res["label"] == "Offensive" and len(words) > 1:
+                cf, cf_p = counterfactual(text, pairs, res.get("evidence", []))
+                if cf:
+                    q = ", ".join(f"“{html.escape(w)}”" for w in cf)
+                    st.markdown(f"<div class='box box-cf'>🔁 <b>Counterfactual</b> — without {q} the whole system "
+                                f"would say <b>Not offensive</b> ({cf_p:.0%}). These words are what makes it offensive.</div>",
+                                unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='box box-cf'>🔁 <b>Counterfactual</b> — no edit of up to 4 words makes it "
+                                "Not offensive: the offence is carried by the sentence as a whole, not one word.</div>",
+                                unsafe_allow_html=True)
+            st.markdown("**Word-level contributions** (neural model; outlined = safety-layer trigger)")
+            st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
+                        "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span>"
+                        "<span style='background:#fff;outline:2px solid #12233a'>trigger word</span></div>",
+                        unsafe_allow_html=True)
+            st.markdown(render_highlight(pairs, trig), unsafe_allow_html=True)
+            st.caption("Each word is removed in turn and the drop in the model's offensive score is its "
+                       "contribution (occlusion). Of five methods tested against human rationales on 499 unseen "
+                       "SOLD posts, occlusion agreed best with people (AUPRC 0.73 vs 0.53 for SHAP).")
 
 with tab_b:
     st.markdown("Paste comments (one per line) or upload a CSV with a **text** column.")
@@ -280,7 +369,10 @@ with tab_b:
                                 "prediction": [p["label"] for p in preds],
                                 "offensive_score": [round(p["offensive_score"], 3) for p in preds],
                                 "model_score": [round(p["model_score"], 3) for p in preds],
-                                "decided_by": [RULE_NAMES.get(p.get("rule"), "neural model") for p in preds]})
+                                "decided_by": [RULE_NAMES.get(p.get("rule"), "neural model") for p in preds],
+                                "category": [p["profile"]["category"] for p in preds],
+                                "target": [p["profile"]["target"] for p in preds],
+                                "intensity_0to6": [p["profile"]["intensity"] for p in preds]})
             st.dataframe(out, width="stretch", hide_index=True)
             st.download_button("⬇️ Download CSV", out.to_csv(index=False).encode("utf-8"),
                                "predictions.csv", "text/csv")
@@ -310,6 +402,24 @@ contrastive augmentation, class-weighted fine-tuning) reads the language, and a 
   **"Uncertain"** verdict on genuinely borderline text.
 - Normalises **romanized-Sinhala spelling** (*hutta / huththa / huttoo* → one form), the challenge
   the literature identifies as hardest for this task.
+- Sees through **filter evasion**: stretched letters (*kiiiill*), spacing (*u m b a*), dots, leetspeak
+  (*p@ko*), zero-width characters, Cyrillic look-alike letters and vowel-dropped typing (*mrnw* = *maranawa*).
+- Reads **emoji**: a weapon emoji aimed at a person (*umbata 🔪*) is a threat; an animal emoji next to a
+  group noun is dehumanisation.
+- Reads **meaning, not pronoun register**: Sinhala pronouns such as *meki*, *tho/thota*, *umba*, *mu* are
+  casual or rude *register*, not insults. *"meki mara lassanai"* (she's really pretty) and *"thota mama kiwwa"*
+  (I told you) are fine; *"meki baduwak"* or *"tho nam wandurek"* are insults because of what is SAID — the
+  predicate at the end of the Sinhala clause.
+- Knows **use from mention**: *"hambaya kiyanne jatiwadi wachanayak"* ("'hambaya' is a racist word")
+  talks *about* a slur and is not hate speech.
+
+**How each decision is explained:**
+- an **offence profile** — category, target (individual / group / untargeted, as in the OLID/SOLD
+  hierarchy) and an intensity level on Bahador's 6-point hate-speech intensity scale;
+- the **decision trace** — the neural model's score, the safety-layer rule that fired and its trigger words;
+- a **counterfactual** — the smallest set of words whose removal makes the whole system say *Not offensive*;
+- **word-level contributions** from occlusion, the attribution method that best matched human
+  rationales on SOLD in our evaluation (ahead of SHAP and gradient-based attribution).
 
 This model + explainable-lexicon design follows validated work on lexicon-enhanced transformers for
 low-resource hate-speech detection.
