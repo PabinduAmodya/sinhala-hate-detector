@@ -301,6 +301,9 @@ _WEAK_MARKER = {"balapan", "balapang", "balapiya", "hitapan", "hitapang", "idapa
                 "බලපන්", "බලපිය", "හිටපන්", "ඉඳපන්"}
 # intimidation / warning markers that imply an addressee (checked on tokens and joined pairs)
 _MARKER = {
+    "balagenahitapan", "balagenahitapang", "balagenahiti", "parissamin", "parissamen", "parissamenhitapan",
+    "පරිස්සමින්", "පරිස්සමෙන්", "බලාගෙනහිටපන්", "බලාගෙනහිටු",
+    "dawasganangapan", "දවස්ගනන්කරපන්",
     "danaganin", "danaganing", "danagania", "balaganin", "balaganing", "balapan", "balapang",
     "balapiya", "hitapan", "hitapang", "matakatiyaganin", "matakatiyaganing", "lestiweyan",
     "lestiwenin", "berenaba", "berennaba", "berennebe", "hoyagena", "hoyagenawit",
@@ -342,10 +345,13 @@ _BENIGN = {
 # 4. Curses / death wishes (offensive whether or not a target is named)
 # ════════════════════════════════════════════════════════════════════════════
 _CURSE_TOK = {"mariyan", "mareyan", "mariyang", "maren", "mareng", "kys", "walaliyan", "walaliyang",
+              "maraganin", "maraganing", "maragannin", "මරාගනින්", "මරාගන්නින්",
               "වැලලියන්",   # "go get buried" — same optative curse form as මැරියන් (SHS-dev 32/32 offensive)
              
               "මැරියන්", "මැරෙයන්", "මැරෙන්"}
 _CURSE_PAIR = {  # joined adjacent tokens
+    "maraganin", "maraganing", "maragannin", "මරාගනින්", "මරාගන්නින්", "jeewatwennaepa", "jiwatwennaepa",
+    "jeewatwennanamepa", "ජීවත්වෙන්නඑපා", "ජීවත්වෙන්ඩඑපා", "marilayanna", "මැරිලායන්න",
     "marilayan", "marilapalayan", "malapalayan", "mailapalayan", "wandawelayan", "wandawenna",
     "apayatayan", "henagahapan", "henagahapiya",
     "henamagahapiya", "henamagahapan", "godie", "youdie", "dropdead",
@@ -361,7 +367,8 @@ _EN_THREAT_PHRASES = [("deserve", "to", "be", "raped"), ("deserves", "to", "be",
 # bare "hena gahapiya/gahapan" is also an exclamation ("damn it!") — needs an addressee (see analyse)
 _HENA_PAIRS = {"henagahapan", "henagahapiya", "henamagahapiya", "henamagahapan",
                "හෙනගහපන්", "හෙනගහපිය", "හෙනමගහපිය", "හෙනමගහපන්"}
-_CURSE_EN = [("hope", "you", "die"), ("kill", "yourself"), ("kill", "urself")]
+_CURSE_EN = [("hope", "you", "die"), ("kill", "yourself"), ("kill", "urself"), ("go", "and", "die"),
+             ("go", "n", "die"), ("just", "die"), ("pls", "die"), ("please", "die"), ("drop", "dead")]
 
 # ════════════════════════════════════════════════════════════════════════════
 # 5. Identity groups, slurs and hostile predicates
@@ -459,7 +466,7 @@ _VULGAR = _rx(
     r"fuck\w*", r"bitch\w*", r"asshole", r"slut", r"whore", r"cunt",
     r"පක(?:ා|ෝ|ො|යා|යෝ|යො|යින්|යන්ට|යට|යෙක්|යෙක්ද|ෙක්|ෙක්ද)?", r"පොන්නය(?:ා|ෝ|ො|ින්|ට|ෙක්|ෙක්ද)?",
     r"පූක(?:ා|ේ|ට)?", r"කැරියෙක්\w*", r"වේසියෙක්\w*",
-    r"හුත්ත(?:ා|ෝ|ො|ිගේ|ෙක්)?", r"වේසි(?:යා|ගේ|යෝ)?", r"වේසාවා", r"කැරි(?:යා|යෝ)?",
+    r"හුත්ත(?:ා|ෝ|ො|ිගේ|ෙක්)?", r"වේසි(?:යා|ගේ|යෝ)?", r"(?:බලු)?වෙසි(?:යා|ගේ|යෝ|යෙ|යේ)?", r"වෙසියෙක්\w*", r"වේසාවා", r"කැරි(?:යා|යෝ)?",
     r"පුක(?:ේ|ට)?", r"හුකන(?:වා|්න)", r"හුකපන්", r"හුකලා",
     r"කිම්බ(?:ා)?", r"පුක්මන්ත(?:ා)?", r"උක්නවා", r"උකනවා", r"උක්කනවා", r"හ්කන\w*",
 )
@@ -544,6 +551,13 @@ _MOCK_EMO = ("\U0001F9CC", "\U0001F921", "\U0001F4A9", "\U0001F595")
 _ACCUSE = {"minimaruwa", "minimaruwo", "horu", "horek", "pachaya", "gu", "guu", "මිනීමරුවා", "හොරා"}
 
 
+# explicit WARNINGS ("be careful", "just watch", "know this") — needed for a pro-drop stalking threat
+_WARNING = {"parissamin", "parissamen", "parissamenhitapan", "පරිස්සමින්", "පරිස්සමෙන්", "balagenahitapan",
+            "balagenahitapang", "බලාගෙනහිටපන්", "danaganin", "danaganing", "දැනගනින්", "matakatiyaganin",
+            "මතකතියාගනින්"}
+# warnings that are ordinary trash talk inside a game ("balagena hitapan" = just watch)
+_PLAY_OK_MARKER = {"balagenahitapan", "balagenahitapang", "balagenahiti", "බලාගෙනහිටපන්", "බලාගෙනහිටු",
+                   "balapan", "balapang", "balapiya", "බලපන්", "බලපිය"}
 # games and matches: a violence verb whose setting is INSIDE the game is play
 _PLAY_NOUN = {"game", "gamek", "gem", "pubg", "freefire", "ff", "cod", "match", "mach", "ground", "bigmatch", "fifa",
               "ගේම්", "ගේම", "මැච්", "මැච්එක", "ග්‍රවුන්ඩ්", "thomian", "tomian", "royal", "tournament", "final"}
@@ -584,8 +598,24 @@ _INSULT_PHRASE = {"lajjanadda", "lajjawaknadda", "molayakna", "molayaknati", "mo
                   "lajjanati", "lajjanatti", "lajjanatiekek", "molanadda", "molenadda", "molana", "molena",
                   "molenati", "molanati", "oluwemolenadda", "oluwemolena",
                   "ලැජ්ජනැති", "ලජ්ජනැති", "ලැජ්ජානැති", "මොළේනැද්ද", "මොළේනෑ", "මොලේනැද්ද", "මොළයනැති"}
+# referring to a person BY an insult: demonstrative + a non-animal insult noun ("me balli", "me pissa").
+# Animal nouns are excluded here ("me balla lassanai" = this dog is cute).
+_DEMONSTRATIVE = {"me", "oya", "ara", "oka", "මේ", "ඔය", "අර", "ඕක"}
+_REF_INSULT = _rx(r"bal+i\w*", r"pis+a", r"pis+ek", r"pis+i", r"modaya\w*", r"kalakan+i\w*", r"wesi\w*",
+                  r"gon+a+", r"gonek", r"pakaya\w*", r"hut+a\w*", r"deshadrohi\w*",
+                  r"බැල්ලි\w*", r"පිස්සා", r"පිස්සෙක්", r"මෝඩයා", r"කාලකන්නි\w*", r"වේසි\w*", r"ගොනා", r"පකයා")
+_EN_PERSON = {"girl", "girls", "guy", "guys", "woman", "women", "man", "men", "people", "politician", "politicians",
+              "singer", "actor", "actress", "minister", "ministers", "mp", "mps", "bitch", "kid", "kids", "face"}
+_SOLICIT = {"raataenawada", "ratataenawada", "රෑටඑනවද", "රෑටඑනවාද", "rateekakiyada", "rateekakeeyada",
+            "ratekiyada", "roomekataenawada", "roomekataenawda", "rumekataenawada", "onenight", "නිදාගන්නඑනවද",
+            "nidaganennawada", "nidagannaenawada"}
 # English nouns used as an insulting predicate inside Sinhala ("pig ekak wage", "meki proper item ekak")
 _EN_PRED_NOUN = {"pig", "dog", "monkey", "donkey", "cow", "item", "clown", "joker", "idiot", "fool", "liar"}
+# praise words that turn a preceding rough word into an intensifier ("pissu hondai" = crazy good)
+_PRAISE = {"hondai", "honda", "hodai", "lassanai", "lassana", "supiri", "niyamai", "patta", "maru", "ela", "shape",
+           "හොඳයි", "හොදයි", "ලස්සනයි", "සුපිරි", "නියමයි", "පට්ට", "මරු"}
+# compassion ("aney pau" = aww, poor thing)
+_PITY = {"pau", "paw", "pawu", "පව්", "පවු", "පවුනේ", "පව්නේ"}
 # sentence-final particles skipped when locating the predicate ("umba wandurek NE", "meki baduwak BN")
 _PARTICLE = {"ne", "neda", "nede", "bn", "ban", "bang", "machan", "ko", "oi", "oy", "ai", "nam", "da",
              "නේ", "නේද", "බං", "බන්", "කෝ", "ඕයි", "අයි"}
@@ -820,6 +850,12 @@ def analyse(text):
             if any(tuple(raw[i:i + m]) == pat for i in range(len(raw) - m + 1)) and \
                     not any(w in _EN_NEG for w in raw):
                 threat = "threat_target"
+    # STALKING threat: "I know where / how you get home" + a warning — no violent verb needed
+    home = bool(tokset & {"gedara", "gedarata", "ගෙදර", "ගෙදරට", "address", "adrase"})
+    knows = bool(tokset & {"danawa", "dannawa", "දන්නවා", "danne", "දන්නේ", "hoyagattha", "හොයාගත්තා"})
+    if threat is None and home and knows and ((set(strong_marker) & _WARNING) or ((tgt_idx or nom_idx) and strong_marker)) \
+            and not benign:
+        threat = "threat_implied"
     weapon_emo = [e for e in _WEAPON_EMO if e in str(text)]
     if threat is None and weapon_emo and (tgt_idx or nom_idx) and not benign and not negated_any \
             and not (tokset & _NEG_AFTER):
@@ -830,7 +866,7 @@ def analyse(text):
     play = any(e in str(text) for e in _PLAY_EMO) or any(
         (seq[i] in _PLAY_NOUN or raw[i] in _PLAY_NOUN) and seq[i + 1] in _LOCATIVE for i in range(n - 1))
     s["play_context"] = play and threat in ("threat_target", "threat_implied", "emoji_threat") and \
-        not strong_marker and not (tokset & {"gedarata", "ගෙදරට", "hoyagena", "හොයාගෙන"})
+        not (set(strong_marker) - _PLAY_OK_MARKER) and not (tokset & {"gedarata", "ගෙදරට", "hoyagena", "හොයාගෙන"})
     s["threat"] = threat
     s["weapon_emo"] = weapon_emo
     s["animal_emo"] = [e for e in _ANIMAL_EMO if e in str(text)]
@@ -854,7 +890,9 @@ def analyse(text):
         after = set(seq[i + 2:i + 4])
         if after & reported or after & {"wage", "wge", "වගේ", "වගෙ"}:
             return False                                     # reported speech / simile ("like lightning")
-        return (i > 0 and addressee_dative(seq[i - 1])) or any(sid[t] == sid[i] for t in tgt_idx)
+        optative = seq[i + 1] in {"gahanna", "gahapan", "gahapiya", "gahapang", "ගහන්න", "ගහපන්", "ගහපිය"}
+        return (i > 0 and addressee_dative(seq[i - 1])) or any(sid[t] == sid[i] for t in tgt_idx) or \
+            (optative and i > 0 and seq[i - 1].endswith(("ta", "ට")) and len(seq[i - 1]) > 3)
 
     hena_addressed = any(hena_curse(i) for i in range(n))
     tok_curse = bool(tokset & _CURSE_TOK)
@@ -891,10 +929,13 @@ def analyse(text):
     # coded expulsion: "oya aya ape ratin yanna ona" — a human collective (not "we", not "our people") told to
     # leave the country; "oya companies ape ratin yanna ona" (criticism of firms) has no human collective
     def expel_verb(j):
+        if seq[j] in {"inna", "ඉන්න"} and j + 1 < n and seq[j + 1] in {"epa", "එපා"} and \
+                any(seq[k] in {"rate", "රටේ", "rata", "රට"} for k in range(max(0, j - 3), j)):
+            return True
         return _EXPEL_TOK.match(seq[j]) or (seq[j] in {"palayan", "yanna", "පලයන්", "යන්න"} and
                                            any(_FROM_COUNTRY.match(seq[k]) for k in range(max(0, j - 3), j)))
     coll = [i for i in range(n) if seq[i] in _COLLECTIVE and not (i > 0 and seq[i - 1] in {"ape", "apē", "අපේ", "අපෙ"})]
-    expel_coded = any(expel_verb(j) and any(0 < j - c <= 6 and sid[c] == sid[j] for c in coll) for j in range(n))         and not any(_negated(j, j, raw, seq) for j in range(n) if expel_verb(j))
+    expel_coded = any(expel_verb(j) and any(0 < j - c <= 6 and sid[c] == sid[j] for c in coll) for j in range(n))         and not any(_negated(j, j, raw, seq) for j in range(n) if expel_verb(j) and seq[j] not in {"inna", "ඉන්න"})
     boycott = bool(_match(_BOYCOTT_SHOP, seq)) and bool(pairs & _BOYCOTT_ACT)
     # violence against a group / its places: intent or obligation forms (incl. "break" for places)
     # a bare infinitive is a slogan-style command when aimed at a group ("gini thiyanna!")
@@ -974,14 +1015,17 @@ def analyse(text):
     s["rude_gen"] = [raw[i] for i in range(n) if seq[i] in _RUDE_GEN]
     # ── register vs meaning ──
     reg_idx = [i for i in range(n) if seq[i] in _REGISTER or raw[i] in _REGISTER]
-    person_sids = {sid[i] for i in reg_idx + tgt_idx + nom_idx}
+    pers_idx = [i for i in range(n) if seq[i] in _PERSON or raw[i] in _PERSON or seq[i] in _COLLECTIVE
+                or raw[i] in _EN_PERSON]
+    person_sids = {sid[i] for i in reg_idx + tgt_idx + nom_idx + pers_idx}
 
     def predicate_slot(i):
         """Is token i in PREDICATE position of its clause (SOV: clause-final, or a simile before 'wage')?"""
         j = i + 1
         while j < n and sid[j] == sid[i] and seq[j] in _PARTICLE:
             j += 1
-        return j >= n or sid[j] != sid[i] or seq[j] in _HEDGE or seq[j] in {"kiyala", "කියලා"}
+        return j >= n or sid[j] != sid[i] or seq[j] in _HEDGE or seq[j] in {"kiyala", "කියලා"} or \
+            seq[j] in {"rella", "rellak", "rala", "ralak", "kattiya", "රැළ", "රැළක්", "කට්ටිය"}
 
     def indefinite(w):
         return w.endswith(("ek", "yak", "wak", "ෙක්", "යක්", "වක්"))
@@ -993,7 +1037,19 @@ def analyse(text):
     phrase = [p for p in (pairs | {seq[i] + seq[i + 1] + seq[i + 2] for i in range(n - 2)}) if p in _INSULT_PHRASE]
     phrase += [raw[i] for i in range(n - 1) if raw[i] in _EN_PRED_NOUN and seq[i + 1] in {"ekak", "eka", "එකක්", "එක"}
                and sid[i] in person_sids]
-    s["pred_insult"] = (pred_ins + phrase) if (reg_idx or tgt_idx or nom_idx) and not negated_any else []
+    # an insult noun USED AS THE REFERENCE: "me balli", "kawda me pissa", "oya modaya" (this bitch / lunatic / fool)
+    demo_ref = [raw[i + 1] for i in range(n - 1) if seq[i] in _DEMONSTRATIVE and
+                (_REF_INSULT.match(seq[i + 1]) or _REF_INSULT.match(raw[i + 1]))]
+    # an insult word modifying a person noun: "kalakanni ganiyek", "ugly face", "stupid girl"
+    en_pred = [raw[i] for i in range(n) if raw[i] in _EN_INSULT and predicate_slot(i) and sid[i] in person_sids]
+    mod_person = en_pred + [raw[i] for i in range(n - 1) if (_HARD.match(seq[i]) or raw[i] in _EN_INSULT
+                                                             or _INSULT_NOUN.match(seq[i])
+                                                             or seq[i] in {"uuru", "ඌරු"})
+                  and (seq[i + 1] in _PERSON or raw[i + 1] in _PERSON or raw[i + 1] in _EN_PERSON
+                       or raw[i + 1] in {"face", "muna"})]
+    s["pred_insult"] = ((pred_ins + phrase) if (reg_idx or tgt_idx or nom_idx or pers_idx) else []) + demo_ref + mod_person
+    if negated_any:
+        s["pred_insult"] = []
     s["register"] = [raw[i] for i in reg_idx]
     # a harmless predicate counts only when it IS the predicate of the pronoun's own clause (clause-final,
     # or its verb group) and the comment is short enough that this clause is the message — a harmless word
@@ -1012,8 +1068,19 @@ def analyse(text):
     # SHORT romanized text: the model scores 1-2 word Latin texts close to noise ("Hey" 0.71, "stupid" 0.35),
     # while on real comments such texts without an abusive word are never offensive (YouTube-500: 0/14)
     s["short_latin"] = 0 < n <= SHORT_TOK and not script_dominant(text)
+    # sexual solicitation about / to a person ("raata enawada? 😏", "rate eka kiyada") — sexual harassment
+    s["solicit"] = bool((pairs | tokset) & _SOLICIT) and bool(reg_idx or tgt_idx or nom_idx or pers_idx) \
+        and not negated_any
+    # rhetorical put-down: register pronoun + "kawda" (who do you think you are?) — never a friendly chat
+    s["putdown"] = bool(reg_idx) and bool(tokset & {"kawda", "kauda", "කවුද", "kawd"})
     s["short_insult"] = [w for w in raw if w in _EN_INSULT] or \
         ([raw[0] + raw[1]] if n == 2 and raw[0] + raw[1] in _EN_INSULT_PAIR else [])
+    intens = {i for i in hard_idx + soft_idx if i + 1 < n and (seq[i + 1] in _PRAISE or raw[i + 1] in _PRAISE)}
+    hard_idx = [i for i in hard_idx if i not in intens]
+    soft_person = [i for i in soft_person if i not in intens]
+    s["hard"] = seq[hard_idx[0]] if hard_idx else None
+    if intens and not hard_idx and not soft_person:
+        s["soft"] = None
     s["name_call"] = (not negated_any and not endear and what_a) or (not negated_any and not endear and
                       (near(hard_idx, nom_idx) or near(soft_person, nom_idx, 1) or
                        near(soft_person, person_idx, 1) or near(animal_person, nom_idx, 1)))
@@ -1122,8 +1189,18 @@ def apply_safety_net(text, res, signals=None):
         return _force(res, 0.92, "vulgar")
     if s["name_call"]:
         return _force(res, 0.90, "name_call")
+    if s.get("solicit") and not s.get("metalinguistic"):
+        return _force(res, 0.88, "sexual_harassment")    # "meki patta ganiyak, raata enawada? 😏"
     if s["pred_insult"] and not s.get("metalinguistic") and not s["endear"]:
         return _force(res, 0.88, "predicate_insult")     # "tho nam wandurek", "meki baduwak", "muna uurage wage"
+    pity_neg = any((s["seq"][i] in _PITY or s["raw"][i] in _PITY) and i + 1 < len(s["seq"]) and s["seq"][i + 1] in _NEG_AFTER
+                   for i in range(len(s["seq"])))
+    mocking = any(e in str(text) for e in ("\U0001F923", "\U0001F602")) or set(s["seq"]) & {"yako", "yakko", "යකෝ", "යකො"}
+    if (set(s["raw"]) & _PITY or set(s["seq"]) & _PITY) and s["ntok"] <= 12 and res["offensive_score"] >= 0.42 \
+            and not pity_neg and not mocking and not s["hostile_imp"] and not (
+            s["hard"] or s["soft"] or s["vulgar"] or s["curse"] or s["hate"] or s["threat"] or s["pred_insult"]
+            or s["name_call"] or any(e in str(text) for e in _MOCK_EMO)):
+        return _rescue(res, "supportive")               # "aney pau me lamaya, hodata balaganna ona"
     # the PRONOUN alone never makes a sentence offensive: register pronoun + a harmless predicate + no abusive
     # cue anywhere -> Not offensive, even when the model is confident (its confidence here IS the pronoun bias)
     if s["register"] and s["benign_pred"] and res["offensive_score"] >= 0.42 and not (
@@ -1175,7 +1252,7 @@ def apply_safety_net(text, res, signals=None):
         return res, False                                # "palayan" / "wahapan" — never rescued
     if s["soft"] and s["soft_thing"] and not s["target"] and p < RESCUE_MAX_P:
         return _rescue(res, "soft_thing")               # "moda wada karanna epa" — a silly act
-    if (s["friendly"] or s["casual"]) and not s["soft"] and (short or p < RESCUE_MAX_P):
+    if (s["friendly"] or s["casual"]) and not s["soft"] and not s.get("putdown") and (short or p < RESCUE_MAX_P):
         return _rescue(res, "casual")                   # "umba kohomada" — how are you
     return res, False
 
@@ -1216,6 +1293,7 @@ _REASON = {
                     "person it replies to.",
     "short_neutral": "A one- or two-word comment with no insulting, obscene or threatening word — nothing in it "
                      "attacks anyone.",
+    "sexual_harassment": "It makes a sexual proposition about or to a person (“raata enawada?”) — sexual harassment.",
     "predicate_insult": "What is SAID about the person is an insult — an animal / object / character noun in the "
                         "predicate (“tho nam wandurek”, “meki baduwak”, “muna uurage wage”).",
     "register_benign": "The pronoun (මේකි / තොට / උඹ / මූ …) is only casual or rude REGISTER; what is said about the "
@@ -1305,6 +1383,12 @@ def evidence(text, res, signals=None):
                 add(i)
     if rule == "short_insult":
         ev.extend(w for w in s.get("short_insult", []) if w not in ev)
+    if rule == "sexual_harassment":
+        for L in (2, 3):
+            for i in range(n - L + 1):
+                if "".join(seq[i:i + L]) in _SOLICIT:
+                    for j in range(i, i + L):
+                        add(j)
     if rule == "predicate_insult":
         # only WHAT IS SAID (the insulting predicate) — never the pronoun: the pronoun is register, not the offence
         for i in range(n):
@@ -1340,7 +1424,8 @@ _CATEGORY = {
     "violence_call": "Call for violence", "curse": "Death wish / curse",
     "group_slur": "Identity-based hate", "group_violence": "Identity-based hate", "group_expulsion": "Identity-based hate",
     "group_dehumanise": "Identity-based hate", "group_boycott": "Identity-based hate",
-    "vulgar": "Obscenity / profanity", "name_call": "Personal insult", "rude_address": "Personal insult", "predicate_insult": "Personal insult", "short_insult": "Personal insult",
+    "vulgar": "Obscenity / profanity", "name_call": "Personal insult", "rude_address": "Personal insult", "predicate_insult": "Personal insult",
+    "sexual_harassment": "Sexual harassment", "short_insult": "Personal insult",
 }
 _KILL_WORDS = {"kill", "murder", "slaughter", "behead", "lynch", "ghatanaya", "gatanaya", "ඝාතනය"}
 _SEXUAL = {"rape", "raped", "dusanaya", "dooshanaya", "දූෂනය", "දූෂණය"}
@@ -1364,7 +1449,8 @@ def profile(text, res, signals=None):
         category = "Sexual violence / threat"
     if rule and rule.startswith("group") or (not rule and group):
         target = "Group (ethnic / religious / caste / LGBTQ)"
-    elif person or rule in ("name_call", "curse", "threat_target", "rude_address", "predicate_insult"):
+    elif person or rule in ("name_call", "curse", "threat_target", "rude_address", "predicate_insult",
+                            "sexual_harassment"):
         target = "Individual"
     else:
         target = "Untargeted"
@@ -1373,6 +1459,8 @@ def profile(text, res, signals=None):
     elif rule == "curse":
         level = 6
     elif rule in ("group_slur", "group_dehumanise", "group_expulsion", "group_boycott"):
+        level = 4
+    elif rule == "sexual_harassment":
         level = 4
     elif rule in ("name_call", "rude_address", "short_insult", "predicate_insult") or (rule == "vulgar" and target != "Untargeted"):
         level = 3

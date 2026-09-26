@@ -48,6 +48,7 @@ RULE_NAMES = {
     "rude_address": "contemptuous address (තොගේ / තොපේ)", "short_insult": "one-word insult",
     "short_neutral": "short text without abusive content", "play_context": "gaming / sports banter",
     "predicate_insult": "insult in what is said about the person", "register_benign": "rude-casual pronoun, harmless meaning",
+    "sexual_harassment": "sexual harassment",
 }
 
 st.set_page_config(page_title="Sinhala–English Hate Speech Detector",
@@ -166,6 +167,7 @@ def predict_batch(texts, bs=32):
     return out
 
 
+MAX_OCCLUSIONS = 40   # upper bound on model runs for one word-level explanation (most comments < 40 words)
 XAI_METHOD = "delete"  # best of delete / mask / hybrid / SHAP / grad x input on SOLD human rationales
                        # (scripts/eval_xai.py, 499 unseen posts: AUPRC .733, comprehensiveness .521)
 
@@ -177,10 +179,26 @@ def word_importance(text, method=XAI_METHOD):
     words = str(text).split()
     if not words:
         return []
+    # the model reads only the first MAX_LEN sub-word tokens: hiding a word beyond that cannot change its score,
+    # so only the words it actually reads are attributed (the rest get 0) ...
+    n_read, used = 0, 2
+    for w in words:
+        used += len(tok.tokenize(light_normalize(w))) or 1
+        if used > MAX_LEN:
+            break
+        n_read += 1
+    n_read = max(n_read, 1)
+    # ... and a long comment is occluded in small groups of words, keeping the cost to <= MAX_OCCLUSIONS model runs
+    k = max(1, -(-n_read // MAX_OCCLUSIONS))
+    spans = [(a, min(a + k, n_read)) for a in range(0, n_read, k)]
     fill = [tok.mask_token] if method == "mask" else []
-    variants = [" ".join(words[:i] + fill + words[i + 1:]) or "." for i in range(len(words))]
+    variants = [" ".join(words[:a] + fill + words[b:]) or "." for a, b in spans]
     p = _probs([str(text)] + variants)[:, OFF]
-    return [(w, float(p[0] - wo)) for w, wo in zip(words, p[1:])]
+    score = [0.0] * len(words)
+    for (a, b), pv in zip(spans, p[1:]):
+        for i in range(a, b):
+            score[i] = float(p[0] - pv)
+    return list(zip(words, score))
 
 
 def trigger_positions(words, ev):
@@ -268,16 +286,16 @@ if not MODEL_OK:
 
 tab_a, tab_b, tab_c = st.tabs(["  🔎 Analyse  ", "  📦 Batch  ", "  ℹ️ About  "])
 
-EXAMPLES = {
-    "🇱🇰 Praise (Sinhala)": "ගොඩක් ස්තුතියි, හරිම ලස්සන පැහැදිලි කිරීමක්.",
-    "❤️ Endearment (Singlish)": "mage buru patiya, adarei oyaata",
-    "⚠️ Insult (Singlish)": "umba modaya, para balla",
-    "⚠️ Threat (no pronoun)": "කපල මරන්නේ දැන ගනින්",
-    "⚠️ Coded hate": "oya aya ape ratin yanna ona",
-    "🤝 Friendly slang": "bosa machan uba kohomada, ela video bro",
-    "💬 Rude pronoun, kind words": "meki mara lassanai",
-    "⚠️ Objectifying": "meki baduwak",
-    "🎮 Gaming talk": "pubg eke umbawa maranawa",
+EXAMPLES = {   # realistic social-media comments (label -> comment)
+    "👍 Praise": "Supiri video ekak machan, next part eka ikmanata danna 🔥",
+    "🏏 Cricket banter": "හෙට ක්‍රිකට් මැච් එකේදි අපි උඹලව කුඩු කරනවා 😂🏏",
+    "💬 Casual pronoun": "meki mara lassanai neda? 😍",
+    "🗣️ Civil criticism": "Me minister ge katha eka boru, data eka waradi. Evidence denna",
+    "✋ Counter-speech": "Racism is wrong. Muslim shops boycott karanna kiyana post share karanna epa",
+    "⚠️ Insult": "umba wage modayek nam dakala na, oluwe mola na",
+    "⚠️ Threat": "උඹව ගෙදර ඇවිත් කපනවා බලාගෙන හිටපන්",
+    "⚠️ Harassment": "Meki baduwak, number eka denna 😏",
+    "⚠️ Hate trope": "Muslim kadawalin badu ganna epa wanda pethi danawa",
 }
 
 with tab_a:
@@ -326,7 +344,7 @@ with tab_a:
                 pairs = word_importance(text)
             words = text.split()
             trig = trigger_positions(words, res.get("evidence", []))
-            if res["label"] == "Offensive" and len(words) > 1:
+            if res["label"] == "Offensive" and 1 < len(words) <= MAX_OCCLUSIONS:
                 cf, cf_p = counterfactual(text, pairs, res.get("evidence", []))
                 if cf:
                     q = ", ".join(f"“{html.escape(w)}”" for w in cf)
