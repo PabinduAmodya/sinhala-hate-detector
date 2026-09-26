@@ -252,6 +252,9 @@ _BODY_VERB = _rx(f"(?:kada|kad(?=n)|kapa|kap(?=n)|tala|tal(?=n)){_R_INT}", f"(?:
                  f"(?:කඩ|කප|තල){_S_INT}", f"(?:කඩ|කප|තල){_S_CNJ}")
 # completive auxiliary "daanawa" (X-la danawa = will X completely) — intent forms only
 _AUX_DANA = _rx(f"da{_R_INT}", "dana", f"දා{_S_INT}", "දාන්න")
+# motion auxiliary after a conjunctive verb: "kapala yanne / yannam" = (I'll) cut and go — an intent form
+_AUX_GO = _rx(r"yanawa+", r"yanne+", r"yannam", r"yannan", r"yanna", r"yamu", r"ennam", r"enne+",
+              "යනවා", "යන්නේ", "යන්නෙ", "යන්නම්", "යන්නං", "යමු", "එන්නම්", "එන්නේ")
 # obligation / permission after an infinitive ("maranna ona" = must be killed)
 _OBLIG = {"ona", "one", "oni", "onee", "oona", "ඕන", "ඕනෙ", "ඕනේ", "ඕනි"}
 
@@ -301,6 +304,7 @@ _WEAK_MARKER = {"balapan", "balapang", "balapiya", "hitapan", "hitapang", "idapa
                 "බලපන්", "බලපිය", "හිටපන්", "ඉඳපන්"}
 # intimidation / warning markers that imply an addressee (checked on tokens and joined pairs)
 _MARKER = {
+    "gedaraawilla", "gedarataawilla", "ගෙදරඇවිල්ල", "ගෙදරඇවිල්ලා", "ගෙදරටඇවිල්ල", "ගෙදරටඇවිල්ලා",
     "balagenahitapan", "balagenahitapang", "balagenahiti", "parissamin", "parissamen", "parissamenhitapan",
     "පරිස්සමින්", "පරිස්සමෙන්", "බලාගෙනහිටපන්", "බලාගෙනහිටු",
     "dawasganangapan", "දවස්ගනන්කරපන්",
@@ -696,7 +700,7 @@ def _violence_preds(raw, seq):
         nxt2 = seq[vi + 2] if vi + 2 < len(seq) else ""
         if st == "inf" and (nxt in _OBLIG or (nxt in {"danna", "dana", "දාන්න"} and nxt2 in _OBLIG)):
             st = "obl"                                   # maranna ona = must be killed
-        if st == "cnj" and nxt and _AUX_DANA.match(nxt):
+        if st == "cnj" and nxt and (_AUX_DANA.match(nxt) or (_AUX_GO.match(nxt) and k != "en")):
             st = "int"                                   # puchchala danawa = will burn (you) up
         if st == "cnj" and nxt in {"danna", "දාන්න"} and nxt2 in _OBLIG:
             st = "obl"                                   # marala danna ona = must be killed off
@@ -803,7 +807,11 @@ def analyse(text):
             j = vi - 1
             if j >= 0 and seq[j] in _HIT_FILL:
                 j -= 1
-            return j >= 0 and j in obj_idx and sid[j] == sid[vi]
+            if j >= 0 and j in obj_idx and sid[j] == sid[vi]:
+                return True
+            after = vi + 2 if vi + 1 < n and (_AUX_GO.match(seq[vi + 1]) or _AUX_DANA.match(seq[vi + 1])) else vi + 1
+            return after < n and after in obj_idx and sid[after] == sid[vi] and \
+                (seq[after].endswith(("wa", "ව")) or raw[after].endswith(("wa", "w")))
         lo = min(i, vi) - 4
         near = [t for t in tgt_idx if lo <= t <= vi + 2 and t not in (i, vi) and sid[t] == sid[vi]]
         if not near:

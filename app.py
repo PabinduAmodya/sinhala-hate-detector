@@ -292,18 +292,22 @@ EXAMPLES = {   # REAL comments posted on social media (hand-labelled YouTube, SO
     '💬 Rough but loving': 'යකෝ පිස්සු කෙලින්න එපා අපි උබට හරි ආදරෙයි බං',
     '🏏 Cricket talk': 'මහීශ් තීක්ශනයට බැනල වැඩක් නෑ යකෝ ඌ සාධාරණයක් කරා මැච් එකට',
     '🗣️ Criticism': 'දුම් පානය තියා පාන් ගෙඩියක් ගන්න මිනිස්සුට සල්ලි නෑ. ඔයාලා මීඩීයා ගේම් ගහලා ගෙනාපු ආණ්ඩුව තමා.',
-    '⚠️ Insult': 'Ane pale ballo',
+    '⚠️ Insult': 'උබනම් ගොන් හරකෙක් මෝඩ මූසලයෙක්',
+    '⚠️ Threat': 'හිටපන් ගෙදර ඇවිල්ල කපල යන්නේ උබව',
     '⚠️ Death wish': 'තොට කොරෝනා හැදිලම මැරියන්',
-    '⚠️ Sexist insult': 'මේ මොන පිස්සු ගෑනියෙක්ද?',
+    '⚠️ Harassment': 'Meki baduwak, number eka denna 😏',
     '⚠️ Ethnic slur': 'කොයි පොතේද ඕව ලියල තියෙන්නේ කියලා අපිටත් කියපන්කො හම්බයො',
 }
 
 with tab_a:
-    st.markdown("##### Try an example")
+    st.markdown("##### Try a real comment")
     items = list(EXAMPLES.items())
-    for row in range(0, len(items), 3):
-        for col, (name, txt) in zip(st.columns(3), items[row:row + 3]):
-            col.button(name, width="stretch",
+    groups = (("Everyday comments (rough words, but harmless)", [i for i in items if not i[0].startswith("⚠️")]),
+              ("Offensive comments", [i for i in items if i[0].startswith("⚠️")]))
+    for caption, group in groups:
+        st.caption(caption)
+        for col, (name, txt) in zip(st.columns(len(group)), group):
+            col.button(name.replace("⚠️ ", ""), width="stretch", key=f"ex_{name}",
                        on_click=lambda t=txt: st.session_state.update(inp=t, run_now=True))  # one click = analysed
     st.text_area("Enter a comment", key="inp", height=110,
                  placeholder="Type a Sinhala / English / code-mixed comment…")
