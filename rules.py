@@ -392,6 +392,10 @@ _EXPEL_TOK = _rx(r"elawan+a", r"palawan+a", r"yawan+a", r"pan+an+a", r"palayal+a
 # "from/out of the country" phrases that turn "go" into an expulsion ("me raten palayan")
 _FROM_COUNTRY = _rx(r"ratin", r"raten", r"ratayen", r"ratenma", r"uturata", r"indiyawata", r"arabiyata",
                     r"රටින්", r"රටෙන්", r"උතුරට", r"ඉන්දියාවට", r"අරාබියට")
+# human COLLECTIVES that stand in for a group ("oya aya", "un", "mun") — coded hate names no group
+_COLLECTIVE = {"aya", "ayawa", "minissu", "minisu", "un", "unwa", "mun", "munwa", "ungollo", "mungollo",
+               "ungolla", "mungolla", "අය", "අයව", "මිනිස්සු", "උන්", "උන්ව", "මුන්", "මුන්ව", "උන්ගොල්ලෝ",
+               "මුන්ගොල්ලෝ", "මුං"}
 _EXPEL_PAIR = {"idakna", "idaknae", "idana", "idanae", "ratadenaepa", "ratadennaepa", "ratadennaba",
                "ඉඩක්නෑ", "ඉඩනෑ", "රටදෙන්නඑපා"}
 _DEHUM = _rx(r"bal{2}o+", r"bal{2}an", r"uro+", r"kunu", r"parasites?", r"animals", r"vermin",
@@ -883,6 +887,14 @@ def analyse(text):
                   any(_FROM_COUNTRY.match(seq[k]) for k in range(max(0, j - 3), j))))
                 and near_group(j) for j in range(n)) or bool(pairs & _EXPEL_PAIR)
     dehum = any(_DEHUM.match(seq[j]) and near_group(j, 3) for j in range(n)) or bool(pairs & _DEHUM_PAIR)
+
+    # coded expulsion: "oya aya ape ratin yanna ona" — a human collective (not "we", not "our people") told to
+    # leave the country; "oya companies ape ratin yanna ona" (criticism of firms) has no human collective
+    def expel_verb(j):
+        return _EXPEL_TOK.match(seq[j]) or (seq[j] in {"palayan", "yanna", "පලයන්", "යන්න"} and
+                                           any(_FROM_COUNTRY.match(seq[k]) for k in range(max(0, j - 3), j)))
+    coll = [i for i in range(n) if seq[i] in _COLLECTIVE and not (i > 0 and seq[i - 1] in {"ape", "apē", "අපේ", "අපෙ"})]
+    expel_coded = any(expel_verb(j) and any(0 < j - c <= 6 and sid[c] == sid[j] for c in coll) for j in range(n))         and not any(_negated(j, j, raw, seq) for j in range(n) if expel_verb(j))
     boycott = bool(_match(_BOYCOTT_SHOP, seq)) and bool(pairs & _BOYCOTT_ACT)
     # violence against a group / its places: intent or obligation forms (incl. "break" for places)
     # a bare infinitive is a slogan-style command when aimed at a group ("gini thiyanna!")
@@ -920,6 +932,8 @@ def analyse(text):
             hate = "group_dehumanise"                  # "demalu 🐷🐷" — the emoji IS the animal slur
         elif group and s["weapon_emo"] and n <= 12:
             hate = "group_violence"                    # "muslim kade 💣"
+    if hate is None and expel_coded and not counter:
+        hate = "group_expulsion"                         # "oya aya ape ratin yanna ona" — coded exclusion
     s.update(hate=hate, slur=slur, group=group or place)
 
     # ── personal abuse ──
@@ -1292,18 +1306,23 @@ def evidence(text, res, signals=None):
     if rule == "short_insult":
         ev.extend(w for w in s.get("short_insult", []) if w not in ev)
     if rule == "predicate_insult":
+        # only WHAT IS SAID (the insulting predicate) — never the pronoun: the pronoun is register, not the offence
         for i in range(n):
-            if raw[i] in s.get("pred_insult", []) or seq[i] in _REGISTER or raw[i] in _REGISTER:
+            if raw[i] in s.get("pred_insult", []):
                 add(i)
+        for L in (2, 3):
+            for i in range(n - L + 1):
+                if "".join(seq[i:i + L]) in _INSULT_PHRASE:
+                    for j in range(i, i + L):
+                        add(j)
     if rule == "rude_address":
         for i in range(n):
             if seq[i] in _RUDE_GEN:
                 add(i)
     if rule == "name_call":
         for i in range(n):
-            if (_HARD.match(seq[i]) or _SOFT.match(seq[i]) or _ANIMAL.match(seq[i]) or seq[i] in _NOM_TARGET or
-                    raw[i] in _NOM_TARGET or seq[i] in _PERSON):
-                add(i)
+            if _HARD.match(seq[i]) or _SOFT.match(seq[i]) or _ANIMAL.match(seq[i]):
+                add(i)                                   # the insult itself, not the pronoun it is aimed at
     return ev
 
 

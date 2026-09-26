@@ -89,7 +89,7 @@ st.markdown(f"""
  .box-cf {{ background:#f3f0fb; border:1px solid #d6cdf0; border-left:5px solid #6b4fbb; color:#261a4a; }}
  .trigchip {{ background:#fde8c8; color:#5a3a00; border:1px solid #f0c27a; border-radius:6px;
    padding:2px 8px; margin:2px 4px 2px 0; display:inline-block; }}
- .prof {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:6px 0 4px; }}
+ .prof {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:6px 0 4px; }}
  .prof div {{ background:#f7f9fc; color:#12233a; border:1px solid #e6ecf3; border-radius:10px; padding:10px 12px; }}
  .prof small {{ display:block; color:#5d6b80; font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; }}
  .prof b {{ font-size:15px; }}
@@ -277,14 +277,18 @@ EXAMPLES = {
     "⚠️ Threat (no pronoun)": "කපල මරන්නේ දැන ගනින්",
     "⚠️ Coded hate": "oya aya ape ratin yanna ona",
     "🤝 Friendly slang": "bosa machan uba kohomada, ela video bro",
+    "💬 Rude pronoun, kind words": "meki mara lassanai",
+    "⚠️ Objectifying": "meki baduwak",
+    "🎮 Gaming talk": "pubg eke umbawa maranawa",
 }
 
 with tab_a:
     st.markdown("##### Try an example")
-    cols = st.columns(len(EXAMPLES))
-    for col, (name, txt) in zip(cols, EXAMPLES.items()):
-        col.button(name, width="stretch",
-                   on_click=lambda t=txt: st.session_state.update(inp=t))
+    items = list(EXAMPLES.items())
+    for row in range(0, len(items), 3):
+        for col, (name, txt) in zip(st.columns(3), items[row:row + 3]):
+            col.button(name, width="stretch",
+                       on_click=lambda t=txt: st.session_state.update(inp=t))
     st.text_area("Enter a comment", key="inp", height=110,
                  placeholder="Type a Sinhala / English / code-mixed comment…")
     if st.button("Analyse comment", type="primary", width="stretch"):
@@ -345,8 +349,8 @@ with tab_a:
                                 "Not offensive: the offence is carried by the sentence as a whole, not one word.</div>",
                                 unsafe_allow_html=True)
             st.markdown("**Word-level contributions** (neural model; outlined = safety-layer trigger)")
-            st.markdown("<div class='legend'><span style='background:rgba(224,59,59,.55)'>toward Offensive</span>"
-                        "<span style='background:rgba(46,158,91,.55)'>toward Not offensive</span>"
+            st.markdown("<div class='legend'><span style='background:#f6b9b9;border:1px solid #e07a7a'>toward Offensive</span>"
+                        "<span style='background:#b6e2c6;border:1px solid #6cbf8b'>toward Not offensive</span>"
                         "<span style='background:#fff;outline:2px solid #12233a'>trigger word</span></div>",
                         unsafe_allow_html=True)
             st.markdown(render_highlight(pairs, trig), unsafe_allow_html=True)
