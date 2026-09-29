@@ -26,7 +26,7 @@ Borderline comments get an **"Uncertain — recommend human review"** verdict in
 ## Results (macro-F1, held-out)
 | Test set | Model alone | Full system |
 |---|---|---|
-| SOLD test (2,000) | 0.826 | **0.832** |
+| SOLD test (2,000) | 0.826 | **0.833** |
 | Romanized | 0.842 | 0.875 |
 | Hand-labelled YouTube (500) | 0.760 | 0.798 |
 | Cross-dataset SHS test (never trained on) | — | 0.768 |

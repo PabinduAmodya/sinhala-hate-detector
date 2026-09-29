@@ -87,6 +87,10 @@ def _sin_norm(w):
     w = re.sub(r"(.)\1{2,}", r"\1", w)            # elongation: උඹටටටට -> උඹට, ේේේ -> ේ
     if w.endswith("ං"):
         w = w[:-1] + "න්"
+    # word-final short e typed for long e: උඹෙ = උඹේ ("your"), කියන්නෙ = කියන්නේ.
+    # 3+ characters only, so the 2-character question particle දෙ is left alone.
+    if len(w) >= 3 and w.endswith("ෙ"):
+        w = w[:-1] + "ේ"
     return w
 
 
@@ -325,6 +329,9 @@ _RUDE_IMP = _rx(r"[a-z]{2,}apan+g?", r"[a-z]{2,}apiya", r"[a-z]{2,}apal+[ao]", r
                 r"waren+g?", r"palayan", r"yapan",
                 r"[" + _SIN + r"]+(?:පන්|පල්ලා|ගනින්)", r"[" + _SIN + r"]{2,}පිය", "වරෙන්", "පලයන්")
 _RUDE_NOT = {"japan", "ජපන්", "දෙමාපිය", "මාපිය", "පිය"}
+# copula negators ("oya modayek nemei" = you are NOT an idiot) — only count AFTER the insult noun
+_COP_NEG = {"nemei", "nemeyi", "nemey", "newei", "neweyi", "neme", "nowe", "nowei",
+            "නෙමෙයි", "නෙවෙයි", "නොවේ", "නෙමේ", "නෙවේ"}
 _NEG_AFTER = {"na", "naa", "nae", "naha", "nehe", "neha", "epa", "ba", "bae", "ne",
               "නෑ", "නැහැ", "නැ", "නැත", "එපා", "බෑ", "බැහැ"}
 # benign objects/contexts that make a violence verb literal (food, pests, hair, trees,
@@ -488,7 +495,7 @@ _HARD = _rx(
     r"buruwo+", r"modayo+", r"gon+u", r"harako+", r"kalakan+i\w*", r"yak+u", r"karumay\w*",
     r"karumak+aray\w*", r"sak+iliy[ao]", r"sapayak", r"shapayak", r"hypocrite", r"liar", r"clown", r"traitor",
     r"මෝඩයා", r"මෝඩයෙක්", r"බූරුවා", r"බූරුවෙක්", r"ගොනා", r"ගොනෙක්", r"බල්ලා", r"බල්ලො",
-    r"බල්ලෙක්", r"ලබ්බ(?:ා|ෙ)?", r"labba", r"හරකා", r"හරකෙක්", r"බූරුවෝ", r"මෝඩයෝ", r"ගොන්නු",
+    r"බල්ලෙක්", r"ලබ්බ(?:ා|ෙ|ේ)?", r"labba", r"හරකා", r"හරකෙක්", r"බූරුවෝ", r"මෝඩයෝ", r"ගොන්නු",
     r"කාලකන්නි\w*", r"යක්කු", r"කරුමය\w*", r"කරුමක්කාර\w*", r"සක්කිලියා", r"සක්කිලියෝ",
     r"ශාපයක්", r"සාපයක්", r"ශාපය", r"සාපය",
 )
@@ -1095,9 +1102,14 @@ def analyse(text):
     s["hard"] = seq[hard_idx[0]] if hard_idx else None
     if intens and not hard_idx and not soft_person:
         s["soft"] = None
-    s["name_call"] = (not negated_any and not endear and what_a) or (not negated_any and not endear and
+    # a copula negator right after every insult noun negates it (SOV: "oya modayek nemei"); a negator
+    # BEFORE the insult does not ("mama nemei, umba thamai modaya" = it is YOU who is the idiot)
+    cop_idx = [j for j in range(n) if seq[j] in _COP_NEG or raw[j] in _COP_NEG]
+    ins_idx = hard_idx + soft_person + animal_person
+    cop_negated = bool(ins_idx and cop_idx) and all(any(0 < j - i <= 3 for j in cop_idx) for i in ins_idx)
+    s["name_call"] = not cop_negated and ((not negated_any and not endear and what_a) or (not negated_any and not endear and
                       (near(hard_idx, nom_idx) or near(soft_person, nom_idx, 1) or
-                       near(soft_person, person_idx, 1) or near(animal_person, nom_idx, 1)))
+                       near(soft_person, person_idx, 1) or near(animal_person, nom_idx, 1))))
     s["benign"] = benign
     s["has_violence_verb"] = bool(preds)
     s["marker"] = marker
