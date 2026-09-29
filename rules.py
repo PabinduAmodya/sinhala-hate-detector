@@ -492,7 +492,7 @@ _PERSON = {"gani", "gaani", "ganu", "ganiyak", "ganiyek", "gaaniyak", "ganiyo", 
            "kolla", "kella", "kollo", "kello", "lamaya", "unge",
            "ගෑනි", "ගෑනු", "මිනිහා", "මිනිහෙක්", "මිනිස්සු", "එකා", "එකෙක්", "කොල්ලා", "කෙල්ල"}
 # SOFT adjectives — insult only when aimed at a person
-_SOFT = _rx(r"moda", r"gon", r"gona", r"buru", r"modai", r"gonai", r"මෝඩ", r"ගොන්", r"බුරු", r"පිස්සා", r"පිස්සෙක්")
+_SOFT = _rx(r"moda", r"gon", r"gona", r"buru", r"modai", r"gonai", r"මෝඩ", r"ගොන්", r"බ[ුූ]රු", r"පිස්සා", r"පිස්සෙක්")
 _ANIMAL = _rx(r"haraka", r"ura", r"uura", r"wandura+", r"balu", r"හරක", r"හරකා", r"ඌරා", r"වඳුරා", r"බලු")
 _ENDEAR = {"mage", "ape", "adare", "adarei", "cooti", "chooti", "rattaran", "punci", "punchi",
            "sudu", "මගේ", "ආදරේ", "පුංචි", "චූටි"}
