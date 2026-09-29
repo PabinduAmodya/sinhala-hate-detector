@@ -124,6 +124,7 @@ _SKEL_WORDS = (
      "thopi", "thopiwa", "thopita", "thota", "oyawa", "oyata",
      "dana", "ganin", "danaganin", "balaganin", "hoyagena", "hitapan", "berenna", "gedarata",
      "mariyan", "wanda", "thambila", "thambiya", "thambilata", "muslim", "muslims",
+     "awith", "danna", "kiwwa",
      "hambaya", "kallathoni", "palli",
      "kill", "stab", "murder", "slaughter", "strangle"])
 _SKEL_MAP = {}
@@ -141,8 +142,13 @@ def _restore(w):
         return w
     k = _skel(w)
     c = _SKEL_MAP.get(k)
-    if not c or len(w) >= len(c) or w == c:
+    if not c or w == c:
         return w
+    if len(w) > len(c):
+        # the mirror case: long vowels typed double or ැ typed "ae" (maranawaa, daenaganin, maeriyan).
+        # Same consonant skeleton, and the canonical word is a subsequence -> only vowels were ADDED.
+        it = iter(w)
+        return c if all(ch in it for ch in c) else w
     it = iter(c)
     if not all(ch in it for ch in w):     # only DELETED letters: "gahnw" < gahanawa, but "wind" is not "wanda"
         return w
